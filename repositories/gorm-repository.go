@@ -26,32 +26,81 @@ func New(db *gorm.DB) (*GORMRepository, error) {
 }
 
 func (g *GORMRepository) Get(scope *jsonapi.Scope) *unidb.Error {
+	fmt.Printf("Scope: %s\n", reflect.TypeOf(scope.Value))
 	db, err := g.buildScopeGet(scope)
 	if err != nil {
+
 		errObj := unidb.ErrInternalError.New()
 		errObj.Message = err.Error()
 		return errObj
 	}
+	// for _, field := range scope.SubScopes[0].GetFilterScopes() {
+	// 	fmt.Printf("%v", field.Field.GetFieldName())
+	// }
 
-	err = db.First(scope.Value).Error
-	if err != nil {
-		errObj := g.converter.Convert(err)
-		errObj.Message = err.Error()
-		return errObj
+	// fmt.Printf("%+v", scope.SubScopes[0].Value)
+	db.Debug()
+	db.LogMode(true)
+
+	scopeValue := reflect.ValueOf(scope.Value).Elem()
+	t := scopeValue.Type()
+	fmt.Printf("type: %v\n", t)
+	if t.Kind() == reflect.Slice {
+		fmt.Printf("Len: %v\n", scopeValue.Len())
+		for i := 0; i < scopeValue.Len(); i++ {
+
+			single := scopeValue.Index(i).Interface()
+
+			subScope := db.NewScope(single)
+
+			err := g.getSingle(subScope, single, scope)
+			if err != nil {
+				return g.converter.Convert(err)
+			}
+		}
+	} else {
+
+		err = db.First(scope.Value).Error
+		if err != nil {
+			errObj := g.converter.Convert(err)
+			errObj.Message = err.Error()
+			return errObj
+		}
+
+		rootScope := db.NewScope(scope.Value)
+
+		// iterate over fields
+		for _, fs := range scope.Fields {
+			if fs.IsRelationship() {
+				fieldGScope := db.NewScope(reflect.New(fs.GetFieldType()).Elem().Interface())
+				belongsToFK := getBelongsToFKField(fs, rootScope)
+				err := g.getRelationship(scope.Value, fs, fieldGScope, belongsToFK)
+				if err != nil {
+					errObj := g.converter.Convert(err)
+					errObj.Message = err.Error()
+					return errObj
+				}
+			}
+		}
 	}
+	return nil
+}
 
-	rootScope := db.NewScope(scope.Value)
+func (g *GORMRepository) getSingle(rootScope *gorm.Scope, value interface{}, scope *jsonapi.Scope) error {
+	db := rootScope.DB()
+	err := db.First(value).Error
+	if err != nil {
+		return err
+	}
+	// fmt.Println(value)
 
-	// iterate over fields
 	for _, fs := range scope.Fields {
 		if fs.IsRelationship() {
 			fieldGScope := db.NewScope(reflect.New(fs.GetFieldType()).Elem().Interface())
 			belongsToFK := getBelongsToFKField(fs, rootScope)
-			err := g.getRelationship(scope.Value, fs, fieldGScope, belongsToFK)
+			err := g.getRelationship(value, fs, fieldGScope, belongsToFK)
 			if err != nil {
-				errObj := g.converter.Convert(err)
-				errObj.Message = err.Error()
-				return errObj
+				return err
 			}
 		}
 	}
@@ -64,7 +113,7 @@ func (g *GORMRepository) List(scope *jsonapi.Scope) *unidb.Error {
 		errObj := unidb.ErrInternalError.New()
 		return errObj
 	}
-
+	// db.LogMode(true)
 	err = db.Find(scope.Value).Error
 	if err != nil {
 		return g.converter.Convert(err)
@@ -158,8 +207,7 @@ func (g *GORMRepository) buildScopeGet(jsonScope *jsonapi.Scope) (*gorm.DB, erro
 	}
 	// FieldSets
 	buildFieldSets(db, jsonScope, mStruct)
-
-	fmt.Println(db.QueryExpr())
+	// fmt.Println(db.QueryExpr())
 
 	return db, nil
 }
@@ -192,9 +240,20 @@ func (g *GORMRepository) getRelationship(
 	}
 
 	related := relVal.Interface()
+	// fmt.Println(single)
+	// // fmt.Println(relVal.IsNil())
+	// // fmt.Println(fieldGScope.PrimaryField().DBName)
+	// // fmt.Println(fs.GetFieldName())
+	// // fmt.Println(reflect.TypeOf(related))
+	db := g.db.New()
+	// fmt.Println(reflect.ValueOf(single))
+	// fmt.Println(db)
+	assoc := db.Model(single).Select(fieldGScope.PrimaryField().DBName).Association(fs.GetFieldName())
+	if err := assoc.Error; err != nil {
+		return err
+	}
 
-	err := g.db.New().Model(single).Select(fieldGScope.PrimaryField().DBName).
-		Association(fs.GetFieldName()).Find(related).Error
+	err := assoc.Find(related).Error
 	if err != nil {
 		return err
 	}
@@ -324,17 +383,20 @@ func buildFieldSets(db *gorm.DB, jsonScope *jsonapi.Scope, mStruct *gorm.ModelSt
 				for _, gField := range mStruct.StructFields {
 					if gField.Struct.Index[0] == field.GetFieldIndex() {
 						rel := gField.Relationship
-						if rel != nil {
-							if rel.Kind == "belongs_to" {
-								if rel.ForeignDBNames[0] != "id" {
-									if fields == "" {
-										fields += rel.ForeignDBNames[0]
-									} else {
-										fields += ", " + rel.ForeignDBNames[0]
-									}
+						// if rel != nil {
+						if rel == nil {
+							fmt.Printf("%+v", gField)
+						}
+						if rel.Kind == "belongs_to" {
+							if rel.ForeignDBNames[0] != "id" {
+								if fields == "" {
+									fields += rel.ForeignDBNames[0]
+								} else {
+									fields += ", " + rel.ForeignDBNames[0]
 								}
 							}
 						}
+						// }
 					}
 				}
 			}
@@ -372,7 +434,6 @@ func buildSorts(db *gorm.DB, jsonScope *jsonapi.Scope, mStruct *gorm.ModelStruct
 			if sort.Order == jsonapi.DescendingOrder {
 				order += " DESC"
 			}
-			fmt.Println(order)
 			*db = *db.Order(order)
 		} else {
 			fmt.Println("Rel")
@@ -394,16 +455,15 @@ func getBelongsToFKField(
 	if fs.GetJSONAPIType() == jsonapi.RelationshipSingle {
 		for _, relField := range rootScope.Fields() {
 			if relField.Struct.Index[0] == fs.GetFieldIndex() {
-				if relField.Relationship != nil {
-					if relField.Relationship.Kind == "belongs_to" {
-						for _, rf := range rootScope.Fields() {
-							if rf.Name == relField.Relationship.ForeignFieldNames[0] {
-								belongsToFK = rf
-								return
-							}
+				if relField.Relationship.Kind == "belongs_to" {
+					for _, rf := range rootScope.Fields() {
+						if rf.Name == relField.Relationship.ForeignFieldNames[0] {
+							belongsToFK = rf
+							return
 						}
 					}
 				}
+
 			}
 		}
 	}
