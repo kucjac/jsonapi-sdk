@@ -81,46 +81,46 @@ func (h *JSONAPIHandler) List(model interface{}) http.HandlerFunc {
 			return
 		}
 		// get included
-		v := reflect.ValueOf(scope.Value).Elem()
+		// v := reflect.ValueOf(scope.Value).Elem()
 
-		for _, sub := range scope.SubScopes {
-			// fieldType := v.Type().Field(sub.RelatedField.GetFieldIndex())
-			fieldValue := v.Field(sub.RelatedField.GetFieldIndex())
+		// for _, sub := range scope.SubScopes {
+		// 	// fieldType := v.Type().Field(sub.RelatedField.GetFieldIndex())
+		// 	fieldValue := v.Field(sub.RelatedField.GetFieldIndex())
 
-			// h.log.Infof("%s, %v", fieldType, fieldValue)
-			repo := h.getRepoForModel(scope.RelatedField)
-			if fieldValue.Kind() == reflect.Slice {
-				// get ptr slice and append values from scope
-				slc := reflect.New(fieldValue.Type())
-				slcElem := slc.Elem()
-				for i := 0; i < fieldValue.Len(); i++ {
-					slcElem = reflect.Append(slcElem, fieldValue.Index(i))
-				}
-				slc.Elem().Set(slcElem)
-				sliceVal := slc.Interface()
-				sub.Value = sliceVal
+		// 	// h.log.Infof("%s, %v", fieldType, fieldValue)
+		// 	repo := h.getRepoForModel(scope.RelatedField)
+		// 	if fieldValue.Kind() == reflect.Slice {
+		// 		// get ptr slice and append values from scope
+		// 		slc := reflect.New(fieldValue.Type())
+		// 		slcElem := slc.Elem()
+		// 		for i := 0; i < fieldValue.Len(); i++ {
+		// 			slcElem = reflect.Append(slcElem, fieldValue.Index(i))
+		// 		}
+		// 		slc.Elem().Set(slcElem)
+		// 		sliceVal := slc.Interface()
+		// 		sub.Value = sliceVal
 
-				for i := 0; i < slc.Elem().Len(); i++ {
-					h.log.Info(slc.Elem().Index(i))
-				}
+		// 		for i := 0; i < slc.Elem().Len(); i++ {
+		// 			h.log.Info(slc.Elem().Index(i))
+		// 		}
 
-				dbErr = repo.Get(sub)
-				if dbErr != nil {
-					h.manageDBError(rw, dbErr)
-					return
-				}
+		// 		dbErr = repo.Get(sub)
+		// 		if dbErr != nil {
+		// 			h.manageDBError(rw, dbErr)
+		// 			return
+		// 		}
 
-			} else {
-				sub.Value = fieldValue.Interface()
-				h.log.Info(sub.Value)
-				dbErr := repo.Get(sub)
-				if dbErr != nil {
-					h.manageDBError(rw, dbErr)
-					return
-				}
+		// 	} else {
+		// 		sub.Value = fieldValue.Interface()
+		// 		h.log.Info(sub.Value)
+		// 		dbErr := repo.Get(sub)
+		// 		if dbErr != nil {
+		// 			h.manageDBError(rw, dbErr)
+		// 			return
+		// 		}
 
-			}
-		}
+		// 	}
+		// }
 
 		payload, err := jsonapi.MarshalScope(scope, h.controller)
 		if err != nil {
