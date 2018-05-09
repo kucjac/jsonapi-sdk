@@ -33,6 +33,9 @@ func New(db *gorm.DB) (*GORMRepository, error) {
 }
 
 func (g *GORMRepository) Get(scope *jsonapi.Scope) *unidb.Error {
+	if scope.Value == nil {
+		scope.NewValueSingle()
+	}
 	gormScope, err := g.buildScopeGet(scope)
 	if err != nil {
 		errObj := unidb.ErrInternalError.New()
@@ -41,13 +44,6 @@ func (g *GORMRepository) Get(scope *jsonapi.Scope) *unidb.Error {
 	}
 
 	db := gormScope.DB()
-
-	db.Debug()
-	db.LogMode(true)
-
-	if scope.Value == nil {
-		scope.NewValueSingle()
-	}
 
 	err = db.First(scope.GetValueAddress()).Error
 	if err != nil {
@@ -68,46 +64,40 @@ func (g *GORMRepository) Get(scope *jsonapi.Scope) *unidb.Error {
 		}
 
 	}
+
+	if err = scope.SetIncludedPrimaries(); err != nil {
+		errObj := g.converter.Convert(err)
+		errObj.Message = err.Error()
+		return errObj
+	}
 	return nil
 }
 
-// func (g *GORMRepository) getSingle(rootScope *gorm.Scope, value interface{}, scope *jsonapi.Scope) error {
-// 	db := rootScope.DB()
-// 	err := db.First(value).Error
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	for _, fs := range scope.Fields {
-// 		if fs.IsRelationship() {
-// 			fieldScope := db.NewScope(reflect.New(fs.GetFieldType()).Elem().Interface())
-// 			belongsToFK := getBelongsToFKField(fs, rootScope)
-// 			err := g.getRelationship(value, fs, fieldGScope, belongsToFK)
-// 			if err != nil {
-// 				return err
-// 			}
-// 		}
-// 	}
-// 	return nil
-// }
-
 func (g *GORMRepository) List(scope *jsonapi.Scope) *unidb.Error {
-	gormScope, err := g.buildScopeList(scope)
-	if err != nil {
-		errObj := unidb.ErrInternalError.New()
-		return errObj
-	}
-	db := gormScope.DB()
-	db.LogMode(true)
-
 	if scope.Value == nil {
 		scope.NewValueMany()
 	}
 
+	gormScope, err := g.buildScopeList(scope)
+	if err != nil {
+		errObj := unidb.ErrInternalError.New()
+		errObj.Message = err.Error()
+		return errObj
+	}
+
+	db := gormScope.DB()
+
+	db.LogMode(true)
+	db.Debug()
+
 	err = db.Find(scope.GetValueAddress()).Error
 	if err != nil {
-		return g.converter.Convert(err)
+		dbErr := g.converter.Convert(err)
+		dbErr.Message = err.Error()
+		return dbErr
 	}
+
+	scope.SetValueFromAddressable()
 
 	for _, field := range scope.Fieldset {
 		if field.IsRelationship() {
@@ -117,6 +107,12 @@ func (g *GORMRepository) List(scope *jsonapi.Scope) *unidb.Error {
 				return dbErr
 			}
 		}
+	}
+
+	if err = scope.SetIncludedPrimaries(); err != nil {
+		dbErr := g.converter.Convert(err)
+		dbErr.Message = err.Error()
+		return dbErr
 	}
 
 	return nil
@@ -161,14 +157,14 @@ func (g *GORMRepository) buildScopeGet(jsonScope *jsonapi.Scope) (*gorm.Scope, e
 
 	err := buildFilters(db, mStruct, jsonScope)
 	if err != nil {
+		fmt.Println("Ełłoł jest")
 		return nil, err
 	}
+
 	// FieldSets
 	if err = buildFieldSets(db, jsonScope, mStruct); err != nil {
 		return nil, err
 	}
-	// fmt.Println(db.QueryExpr())
-
 	return gormScope, nil
 }
 
@@ -182,6 +178,7 @@ func (g *GORMRepository) buildScopeList(jsonScope *jsonapi.Scope,
 	// Filters
 	err = buildFilters(db, mStruct, jsonScope)
 	if err != nil {
+		fmt.Println("Ełłoł")
 		return nil, err
 	}
 
@@ -222,37 +219,49 @@ func (g *GORMRepository) getRelationship(
 				return err
 			}
 
-			err := assoc.Find(relationValue.Interface()).Error
+			relation := relationValue.Interface()
+			err := assoc.Find(relation).Error
 			if err != nil {
 				return err
 			}
+
+			relationValue = reflect.ValueOf(relation)
 			return nil
 		}
 
 		getBelongsToRelationship = func(singleValue, relationValue reflect.Value) {
 			relationPrimary := relationValue.Elem().FieldByIndex(fieldScope.PrimaryField().Struct.Index)
-			fkValue := singleValue.FieldByIndex(fkField.Struct.Index)
+			fkValue := singleValue.Elem().FieldByIndex(fkField.Struct.Index)
 			relationPrimary.Set(fkValue)
 		}
 
 		// funcs
 		getRelationshipSingle = func(singleValue reflect.Value) error {
 
+			var isSlice bool
 			relationValue := singleValue.Elem().Field(field.GetFieldIndex())
 			t := field.GetFieldType()
 			switch t.Kind() {
 			case reflect.Slice:
 				relationValue = reflect.New(t)
+				isSlice = true
 			case reflect.Ptr:
 				relationValue = reflect.New(t.Elem())
 				if fkField != nil {
 					getBelongsToRelationship(singleValue, relationValue)
+					singleValue.Elem().Field(field.GetFieldIndex()).Set(relationValue)
+
 					return nil
 				}
 			}
 
 			if err := getDBRelationship(singleValue, relationValue); err != nil {
 				return err
+			}
+			if isSlice {
+				singleValue.Elem().Field(field.GetFieldIndex()).Set(relationValue.Elem())
+			} else {
+				singleValue.Elem().Field(field.GetFieldIndex()).Set(relationValue)
 			}
 
 			return nil
@@ -267,10 +276,9 @@ func (g *GORMRepository) getRelationship(
 
 	// Get gormField as a gorm.StructField for given relationship field
 	for _, gField := range gormScope.GetModelStruct().StructFields {
-		fmt.Printf("GormIndex: %v, JSONAPI index: %v\n", gField.Struct.Index[0], field.GetFieldIndex())
-
 		if gField.Struct.Index[0] == field.GetFieldIndex() {
 			gormField = gField
+			break
 		}
 	}
 
@@ -315,39 +323,24 @@ func (g *GORMRepository) getRelationship(
 
 	}
 
-	// fVal := reflect.ValueOf(single).Elem()
-	// toSet := fVal.Field(fs.GetFieldIndex())
-
-	// relVal := toSet
-
-	// if it is belongsToRelationship
-	//
-	// if belongsToFK != nil {
-	// 	primAssoc := relVal.Elem().FieldByIndex(fieldGScope.PrimaryField().Struct.Index)
-	// 	fkVal := fVal.FieldByIndex(belongsToFK.Struct.Index)
-	// 	primAssoc.Set(fkVal)
-	// 	toSet.Set(relVal)
-	// 	return nil
-	// }
-	// }
-
-	// related := relVal.Interface()
-
-	// relVal = reflect.ValueOf(related)
-	// if t.Kind() == reflect.Slice {
-	// 	relVal = relVal.Elem()
-	// }
-	// toSet.Set(relVal)
 	return nil
 }
 
 func addWhere(db *gorm.DB, columnName string, filter *jsonapi.FilterField) error {
 	var err error
 	for _, fv := range filter.Values {
+
 		op := sqlizeOperator(fv.Operator)
 		var valueMark string
 		if fv.Operator == jsonapi.OpIn || fv.Operator == jsonapi.OpNotIn {
-			valueMark = "(?)"
+			valueMark = "("
+			for i := range fv.Values {
+				valueMark += "?"
+				if i != len(fv.Values)-1 {
+					valueMark += ","
+				}
+			}
+			valueMark += ")"
 		} else {
 			if len(fv.Values) > 1 {
 				err = fmt.Errorf("Too many values for given operator: '%s', '%s'", fv.Values, fv.Operator)
@@ -371,7 +364,11 @@ func buildFilters(db *gorm.DB, mStruct *gorm.ModelStruct, scope *jsonapi.Scope,
 	)
 
 	for _, primary := range scope.PrimaryFilters {
+
 		gormField, err = getGormField(primary, mStruct, true)
+		if err != nil {
+			return err
+		}
 		addWhere(db, gormField.DBName, primary)
 	}
 
@@ -467,7 +464,9 @@ func buildFieldSets(db *gorm.DB, jsonScope *jsonapi.Scope, mStruct *gorm.ModelSt
 	// add primary
 
 	for _, gormField := range mStruct.PrimaryFields {
+		// fmt.Printf("GormFieldIndex: '%v', JsonAPI: '%v'\n", gormField.Struct.Index[0], jsonScope.Struct.GetPrimaryField().GetFieldIndex())
 		if gormField.Struct.Index[0] == jsonScope.Struct.GetPrimaryField().GetFieldIndex() {
+			// fmt.Println("Should be true")
 			fields += gormField.DBName
 			foundPrim = true
 			break

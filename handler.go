@@ -101,6 +101,7 @@ func (h *JSONAPIHandler) List(model interface{}) http.HandlerFunc {
 			jsonapi.MarshalErrors(rw, jsonapi.ErrInternalError.Copy())
 			return
 		}
+
 		err = jsonapi.MarshalPayload(rw, payload)
 		if err != nil {
 			h.log.Error(err)
@@ -136,12 +137,6 @@ func (h *JSONAPIHandler) Get(model interface{}) http.HandlerFunc {
 			return
 		}
 
-		err = scope.SetIncludedPrimaries()
-		if err != nil {
-			h.log.Error(err)
-			jsonapi.MarshalErrors(rw, jsonapi.ErrInternalError.Copy())
-		}
-
 		for _, includedScope := range scope.IncludedScopes {
 			if len(includedScope.IncludeValues) > 0 {
 				includeRepo := h.getModelRepositoryByType(includedScope.Struct.GetType())
@@ -173,7 +168,7 @@ func (h *JSONAPIHandler) manageDBError(rw http.ResponseWriter, dbErr *unidb.Erro
 	h.log.Info(dbErr)
 	errObj, err := h.dbErrMgr.Handle(dbErr)
 	if err != nil {
-		h.log.Error(err)
+		h.log.Error(dbErr.Message)
 		jsonapi.MarshalErrors(rw, jsonapi.ErrInternalError.Copy())
 		return
 	}

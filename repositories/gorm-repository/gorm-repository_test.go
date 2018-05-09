@@ -52,7 +52,32 @@ func TestGORMRepositoryGet(t *testing.T) {
 	dbErr := repo.Get(scope)
 	assert.Nil(t, dbErr)
 
-	// t.Log(scope.Value)
+	req = httptest.NewRequest("GET", "/users/3?include=pets&fields[pets]=name", nil)
+
+	scope, errs, _ = c.BuildScopeSingle(req, &UserGORM{})
+	assert.Empty(t, errs)
+
+	dbErr = repo.Get(scope)
+	assert.Nil(t, dbErr)
+
+	err = scope.SetIncludedPrimaries()
+	assert.NoError(t, err)
+
+	t.Log(scope.Value)
+
+	for _, includedScope := range scope.IncludedScopes {
+		if len(includedScope.IncludeValues) > 0 {
+			t.Log(includedScope.PrimaryFilters[0].Values[0].Values)
+			dbErr = repo.List(includedScope)
+			assert.Nil(t, dbErr)
+			manyIncludes := includedScope.Value.([]*PetGORM)
+			t.Log(manyIncludes[0])
+		} else {
+			t.Log("No values")
+		}
+
+	}
+
 }
 
 func TestGORMRepositoryList(t *testing.T) {
@@ -75,29 +100,43 @@ func TestGORMRepositoryList(t *testing.T) {
 	dbErr := repo.List(scope)
 	assert.Nil(t, dbErr)
 
-	// many, err := scope.GetManyValues()
-	// assert.Nil(t, err)
-	// for _, m := range many {
-	// 	u := m.(*UserGORM)
-	// 	if len(u.Pets) > 0 {
-	// 		t.Log(u.Pets[0])
-	// 	}
-	// }
-
 	req = httptest.NewRequest("GET", "/pets?fields[pets]=name,owner", nil)
+	scope, errs, _ = c.BuildScopeList(req, &PetGORM{})
+	assert.Empty(t, errs)
+
+	dbErr = repo.List(scope)
+	assert.Nil(t, dbErr)
+
+	req = httptest.NewRequest("GET", "/pets?include=owner", nil)
 	scope, _, _ = c.BuildScopeList(req, &PetGORM{})
 
 	dbErr = repo.List(scope)
 	assert.Nil(t, dbErr)
 
-	// many, err = scope.GetManyValues()
-	// for _, m := range many {
-	// 	p, ok := m.(*PetGORM)
-	// 	if !ok {
-	// 		t.Fatal("not ok!")
-	// 	}
-	// 	t.Log(p)
-	// }
+	err = scope.SetIncludedPrimaries()
+
+	assert.NoError(t, err)
+
+	for _, includedScope := range scope.IncludedScopes {
+		dbErr = repo.List(includedScope)
+		assert.Nil(t, dbErr)
+
+	}
+
+	many, ok := scope.Value.([]*PetGORM)
+	assert.True(t, ok)
+
+	for _, single := range many {
+		t.Log(single)
+	}
+
+	manyU, ok := scope.IncludedScopes[c.MustGetModelStruct(&UserGORM{})].Value.([]*UserGORM)
+	assert.True(t, ok)
+
+	t.Log("Includes!")
+	for _, single := range manyU {
+		t.Log(single)
+	}
 
 }
 
