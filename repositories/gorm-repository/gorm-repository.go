@@ -47,9 +47,8 @@ func (g *GORMRepository) Get(scope *jsonapi.Scope) *unidb.Error {
 
 	err = db.First(scope.GetValueAddress()).Error
 	if err != nil {
-		errObj := g.converter.Convert(err)
-		errObj.Message = err.Error()
-		return errObj
+
+		return g.converter.Convert(err)
 	}
 
 	// get relationships
@@ -57,18 +56,14 @@ func (g *GORMRepository) Get(scope *jsonapi.Scope) *unidb.Error {
 		if field.IsRelationship() {
 			err := g.getRelationship(field, scope, gormScope)
 			if err != nil {
-				errObj := g.converter.Convert(err)
-				errObj.Message = err.Error()
-				return errObj
+				return g.converter.Convert(err)
 			}
 		}
 
 	}
 
 	if err = scope.SetIncludedPrimaries(); err != nil {
-		errObj := g.converter.Convert(err)
-		errObj.Message = err.Error()
-		return errObj
+		return g.converter.Convert(err)
 	}
 	return nil
 }
@@ -87,14 +82,9 @@ func (g *GORMRepository) List(scope *jsonapi.Scope) *unidb.Error {
 
 	db := gormScope.DB()
 
-	db.LogMode(true)
-	db.Debug()
-
 	err = db.Find(scope.GetValueAddress()).Error
 	if err != nil {
-		dbErr := g.converter.Convert(err)
-		dbErr.Message = err.Error()
-		return dbErr
+		return g.converter.Convert(err)
 	}
 
 	scope.SetValueFromAddressable()
@@ -102,17 +92,13 @@ func (g *GORMRepository) List(scope *jsonapi.Scope) *unidb.Error {
 	for _, field := range scope.Fieldset {
 		if field.IsRelationship() {
 			if err = g.getRelationship(field, scope, gormScope); err != nil {
-				dbErr := g.converter.Convert(err)
-				dbErr.Message = err.Error()
-				return dbErr
+				return g.converter.Convert(err)
 			}
 		}
 	}
 
 	if err = scope.SetIncludedPrimaries(); err != nil {
-		dbErr := g.converter.Convert(err)
-		dbErr.Message = err.Error()
-		return dbErr
+		return g.converter.Convert(err)
 	}
 
 	return nil
