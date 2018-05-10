@@ -32,6 +32,14 @@ func New(db *gorm.DB) (*GORMRepository, error) {
 
 }
 
+func (g *GORMRepository) Create(scope *jsonapi.Scope) *unidb.Error {
+	err := g.db.Create(scope.GetValueAddress()).Error
+	if err != nil {
+		return g.converter.Convert(err)
+	}
+	return nil
+}
+
 func (g *GORMRepository) Get(scope *jsonapi.Scope) *unidb.Error {
 	if scope.Value == nil {
 		scope.NewValueSingle()
@@ -104,20 +112,36 @@ func (g *GORMRepository) List(scope *jsonapi.Scope) *unidb.Error {
 	return nil
 }
 
-func (g *GORMRepository) Create(scope *jsonapi.Scope) *unidb.Error {
-	err := g.db.Create(&scope.Value).Error
-	if err != nil {
+func (g *GORMRepository) Patch(scope *jsonapi.Scope) *unidb.Error {
+	if scope.Value == nil {
+		// if no value then error
+		dbErr := unidb.ErrInternalError.New()
+		dbErr.Message = "No value for patch method."
+		return dbErr
+	}
+	gormScope := g.db.NewScope(scope.Value)
+	if err := buildFilters(gormScope.DB(), gormScope.GetModelStruct(), scope); err != nil {
+		return g.converter.Convert(err)
+	}
+	if err := gormScope.DB().Update(scope.GetValueAddress()).Error; err != nil {
 		return g.converter.Convert(err)
 	}
 	return nil
 }
 
-func (g *GORMRepository) Patch(scope *jsonapi.Scope) *unidb.Error {
-	//
-	return nil
-}
-
 func (g *GORMRepository) Delete(scope *jsonapi.Scope) *unidb.Error {
+	if scope.Value == nil {
+		scope.NewValueSingle()
+	}
+	gormScope := g.db.NewScope(scope.Value)
+	if err := buildFilters(gormScope.DB(), gormScope.GetModelStruct(), scope); err != nil {
+		return g.converter.Convert(err)
+	}
+
+	if err := gormScope.DB().Delete(scope.GetValueAddress()).Error; err != nil {
+		return g.converter.Convert(err)
+	}
+
 	return nil
 }
 
@@ -143,7 +167,6 @@ func (g *GORMRepository) buildScopeGet(jsonScope *jsonapi.Scope) (*gorm.Scope, e
 
 	err := buildFilters(db, mStruct, jsonScope)
 	if err != nil {
-		fmt.Println("Ełłoł jest")
 		return nil, err
 	}
 
