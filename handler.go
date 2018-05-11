@@ -6,6 +6,7 @@ import (
 	"github.com/kucjac/uni-logger"
 	"net/http"
 	"reflect"
+	"strconv"
 )
 
 type JSONAPIHandler struct {
@@ -80,11 +81,11 @@ func (h *JSONAPIHandler) Get(model interface{}) http.HandlerFunc {
 		scope, errs, err := h.controller.BuildScopeSingle(req, model)
 		if err != nil {
 			h.log.Error(err)
-			jsonapi.MarshalErrors(rw, jsonapi.ErrInternalError.Copy())
+			h.MarshalInternalError(rw)
 			return
 		}
 		if errs != nil {
-			jsonapi.MarshalErrors(rw, errs...)
+			h.MarshalErrors(rw, errs...)
 			return
 		}
 
@@ -117,11 +118,11 @@ func (h *JSONAPIHandler) List(model interface{}) http.HandlerFunc {
 		scope, errs, err := h.controller.BuildScopeList(req, model)
 		if err != nil {
 			h.log.Error(err)
-			jsonapi.MarshalErrors(rw, errs...)
+			h.MarshalInternalError(rw)
 			return
 		}
 		if len(errs) > 0 {
-			jsonapi.MarshalErrors(rw, errs...)
+			h.MarshalErrors(rw, errs...)
 			return
 		}
 
@@ -142,8 +143,8 @@ func (h *JSONAPIHandler) List(model interface{}) http.HandlerFunc {
 					return
 				}
 			}
-
 		}
+
 		h.MarshalScope(scope, rw, req, model)
 
 		return
@@ -159,11 +160,11 @@ func (h *JSONAPIHandler) List(model interface{}) http.HandlerFunc {
 func (h *JSONAPIHandler) Patch(model interface{}) http.HandlerFunc {
 	return func(rw http.ResponseWriter, req *http.Request) {
 		// UnmarshalScope from the request body.
+		SetJSONAPIType(rw)
 		scope := h.UnmarshalScope(model, rw, req)
 		if scope == nil {
 			return
 		}
-		SetJSONAPIType(rw)
 
 		// Set the ID for given model's scope
 		errs, err := h.controller.SetIDFilter(req, scope)
@@ -172,7 +173,7 @@ func (h *JSONAPIHandler) Patch(model interface{}) http.HandlerFunc {
 			return
 		}
 		if len(errs) > 0 {
-			jsonapi.MarshalErrors(rw, errs...)
+			h.MarshalErrors(rw, errs...)
 			return
 		}
 
@@ -196,7 +197,7 @@ func (h *JSONAPIHandler) Delete(model interface{}) http.HandlerFunc {
 		scope, err := h.controller.NewScope(model)
 		if err != nil {
 			h.log.Errorf("Error while creating scope: '%v'", err)
-			jsonapi.MarshalErrors(rw, jsonapi.ErrInternalError.Copy())
+			h.MarshalInternalError(rw)
 			return
 		}
 
@@ -207,7 +208,7 @@ func (h *JSONAPIHandler) Delete(model interface{}) http.HandlerFunc {
 			return
 		}
 		if len(errs) > 0 {
-			jsonapi.MarshalErrors(rw, errs...)
+			h.MarshalErrors(rw, errs...)
 			return
 		}
 
@@ -219,6 +220,28 @@ func (h *JSONAPIHandler) Delete(model interface{}) http.HandlerFunc {
 		}
 		rw.WriteHeader(http.StatusNoContent)
 	}
+}
+
+func (h *JSONAPIHandler) GetIncluded(scope *jsonapi.Scope) bool {
+
+	var nestedScopes []*jsonapi.Scope
+	// at first get all includedFields from the first part
+	for _, includedField := range scope.IncludedFields {
+		if len(includedField.Scope.IncludeValues) > 0 {
+			includedRepo := h.GetModelRepositoryByType(scope.Struct.GetType())
+			if dbErr = includedRepo.List(includedScope); dbErr != nil {
+				h.manageDBError(rw, dbErr)
+				return false
+			}
+		}
+		for _, nestedInclude := range includedField.Scope.IncludedFields {
+			if nestedScopes == nil {
+				nestedScopes = make([]*jsonapi.Scope, 0)
+			}
+		}
+	}
+
+	return true
 }
 
 func (h *JSONAPIHandler) MarshalScope(
@@ -246,14 +269,35 @@ func (h *JSONAPIHandler) UnmarshalScope(
 	scope, errObj, err := jsonapi.UnmarshalScopeOne(req.Body, h.controller)
 	if err != nil {
 		h.log.Errorf("Error while unmarshaling: '%v' for path: '%s' and method: %s. Error: %s.", reflect.TypeOf(model), req.URL.Path, req.Method, err)
-		jsonapi.MarshalErrors(rw, jsonapi.ErrInternalError.Copy())
+		h.MarshalInternalError(rw)
 		return nil
 	}
 	if errObj != nil {
-		jsonapi.MarshalErrors(rw, errObj)
+		h.MarshalErrors(rw, errObj)
 		return nil
 	}
 	return scope
+}
+
+func (h *JSONAPIHandler) MarshalInternalError(rw http.ResponseWriter) {
+	rw.WriteHeader(http.StatusInternalServerError)
+	jsonapi.MarshalErrors(rw, jsonapi.ErrInternalError.Copy())
+
+}
+
+func (h *JSONAPIHandler) MarshalErrors(rw http.ResponseWriter, errors ...*jsonapi.ErrorObject) {
+	if len(errors) > 0 {
+		code, err := strconv.Atoi(errors[0].Status)
+		if err != nil {
+			h.log.Errorf("Status: '%s', for error: %v cannot be converted into http.Status.", errors[0].Status, errors[0])
+			h.MarshalInternalError(rw)
+			return
+		}
+		rw.WriteHeader(code)
+	} else {
+		rw.WriteHeader(http.StatusBadRequest)
+	}
+	jsonapi.MarshalErrors(rw, errors...)
 }
 
 func (h *JSONAPIHandler) manageDBError(rw http.ResponseWriter, dbErr *unidb.Error) {
@@ -261,10 +305,10 @@ func (h *JSONAPIHandler) manageDBError(rw http.ResponseWriter, dbErr *unidb.Erro
 	errObj, err := h.dbErrMgr.Handle(dbErr)
 	if err != nil {
 		h.log.Error(dbErr.Message)
-		jsonapi.MarshalErrors(rw, jsonapi.ErrInternalError.Copy())
+		h.MarshalInternalError(rw)
 		return
 	}
-	jsonapi.MarshalErrors(rw, errObj)
+	h.MarshalErrors(rw, errObj)
 	return
 }
 
@@ -275,7 +319,7 @@ func (h *JSONAPIHandler) errSetIDFilter(
 	req *http.Request,
 ) {
 	h.log.Errorf("Error while setting id filter for the path: '%s', and scope: '%+v'. Error: %v", req.URL.Path, scope, err)
-	jsonapi.MarshalErrors(rw, jsonapi.ErrInternalError.Copy())
+	h.MarshalInternalError(rw)
 	return
 }
 
@@ -287,7 +331,7 @@ func (h *JSONAPIHandler) errMarshalPayload(
 	req *http.Request,
 ) {
 	h.log.Errorf("Error while marshaling payload: '%v'. For model: '%v', Path: '%s', Method: '%s', Error: %v", payload, reflect.TypeOf(model), req.URL.Path, req.Method, err)
-	jsonapi.MarshalErrors(rw, jsonapi.ErrInternalError.Copy())
+	h.MarshalInternalError(rw)
 }
 
 func (h *JSONAPIHandler) errMarshalScope(
@@ -297,7 +341,7 @@ func (h *JSONAPIHandler) errMarshalScope(
 	req *http.Request,
 ) {
 	h.log.Errorf("Error while marshaling scope for model: '%v', for path: '%s', and method: '%s', Error: %s", reflect.TypeOf(model), req.URL.Path, req.Method, err)
-	jsonapi.MarshalErrors(rw, jsonapi.ErrInternalError.Copy())
+	h.MarshalInternalError(rw)
 }
 
 func SetJSONAPIType(rw http.ResponseWriter) {
