@@ -224,22 +224,23 @@ func (h *JSONAPIHandler) Delete(model interface{}) http.HandlerFunc {
 
 func (h *JSONAPIHandler) GetIncluded(scope *jsonapi.Scope) bool {
 
-	var nestedScopes []*jsonapi.Scope
-	// at first get all includedFields from the first part
-	for _, includedField := range scope.IncludedFields {
-		if len(includedField.Scope.IncludeValues) > 0 {
-			includedRepo := h.GetModelRepositoryByType(scope.Struct.GetType())
-			if dbErr = includedRepo.List(includedScope); dbErr != nil {
-				h.manageDBError(rw, dbErr)
-				return false
-			}
-		}
-		for _, nestedInclude := range includedField.Scope.IncludedFields {
-			if nestedScopes == nil {
-				nestedScopes = make([]*jsonapi.Scope, 0)
-			}
-		}
-	}
+	// var nestedScopes []*jsonapi.Scope
+	// // at first get all includedFields from the first part
+	// for _, includedField := range scope.IncludedFields {
+	// 	if len(includedField.Scope.IncludeValues) > 0 {
+	// 		includedRepo := h.GetModelRepositoryByType(scope.Struct.GetType())
+	// 		if dbErr := includedRepo.List(includedScope); dbErr != nil {
+	// 			h.manageDBError(rw, dbErr)
+	// 			return false
+	// 		}
+	// 	}
+	// 	for _, nestedInclude := range includedField.Scope.IncludedFields {
+	// 		if nestedScopes == nil {
+	// 			nestedScopes = make([]*jsonapi.Scope, 0)
+	// 		}
+	// 		nestedInclude.S
+	// 	}
+	// }
 
 	return true
 }
