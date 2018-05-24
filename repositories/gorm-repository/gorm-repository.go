@@ -55,7 +55,6 @@ func (g *GORMRepository) Get(scope *jsonapi.Scope) *unidb.Error {
 
 	err = db.First(scope.GetValueAddress()).Error
 	if err != nil {
-
 		return g.converter.Convert(err)
 	}
 
@@ -67,12 +66,8 @@ func (g *GORMRepository) Get(scope *jsonapi.Scope) *unidb.Error {
 				return g.converter.Convert(err)
 			}
 		}
-
 	}
 
-	if err = scope.SetIncludedPrimaries(); err != nil {
-		return g.converter.Convert(err)
-	}
 	return nil
 }
 
@@ -103,10 +98,6 @@ func (g *GORMRepository) List(scope *jsonapi.Scope) *unidb.Error {
 				return g.converter.Convert(err)
 			}
 		}
-	}
-
-	if err = scope.SetIncludedPrimaries(); err != nil {
-		return g.converter.Convert(err)
 	}
 
 	return nil
@@ -373,7 +364,6 @@ func buildFilters(db *gorm.DB, mStruct *gorm.ModelStruct, scope *jsonapi.Scope,
 	)
 
 	for _, primary := range scope.PrimaryFilters {
-
 		gormField, err = getGormField(primary, mStruct, true)
 		if err != nil {
 			return err
@@ -419,13 +409,13 @@ func buildRelationFilters(
 	for _, filter := range filters {
 		var isPrimary bool
 		// get gorm structField
-		switch filter.GetJSONAPIType() {
+		switch filter.GetFieldKind() {
 		case jsonapi.Primary:
 			isPrimary = true
 		case jsonapi.Attribute, jsonapi.RelationshipSingle, jsonapi.RelationshipMultiple:
 			isPrimary = false
 		default:
-			err = fmt.Errorf("Unsupported jsonapi field type: '%v' for field: '%s' in model: '%v'.", filter.GetJSONAPIType(), filter.GetFieldName(), gormModel.ModelType)
+			err = fmt.Errorf("Unsupported jsonapi field type: '%v' for field: '%s' in model: '%v'.", filter.GetFieldKind(), filter.GetFieldName(), gormModel.ModelType)
 			return err
 		}
 		gormField, err = getGormField(filter, gormModel, isPrimary)
@@ -433,7 +423,7 @@ func buildRelationFilters(
 			return err
 		}
 
-		if filter.GetJSONAPIType() == jsonapi.Attribute || filter.GetJSONAPIType() == jsonapi.Primary {
+		if filter.GetFieldKind() == jsonapi.Attribute || filter.GetFieldKind() == jsonapi.Primary {
 			err = addWhere(db, gormField.DBName, filter)
 			if err != nil {
 				return err
@@ -497,7 +487,7 @@ func buildFieldSets(db *gorm.DB, jsonScope *jsonapi.Scope, mStruct *gorm.ModelSt
 				}
 			}
 		} else {
-			if field.GetJSONAPIType() == jsonapi.RelationshipSingle {
+			if field.GetFieldKind() == jsonapi.RelationshipSingle {
 
 				for _, gField := range mStruct.StructFields {
 					if gField.Struct.Index[0] == field.GetFieldIndex() {
@@ -562,7 +552,7 @@ func buildSorts(db *gorm.DB, jsonScope *jsonapi.Scope, mStruct *gorm.ModelStruct
 // 	fieldScope *gorm.Scope,
 // ) (belongsToFK *gorm.Field) {
 // 	// relation must be of single type
-// 	if field.GetJSONAPIType() == jsonapi.RelationshipSingle {
+// 	if field.GetFieldKind() == jsonapi.RelationshipSingle {
 // 		for _, relField := range fieldScope.Fields() {
 // 			if relField.Struct.Index[0] == field.GetFieldIndex() {
 

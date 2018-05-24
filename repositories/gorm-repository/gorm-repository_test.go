@@ -60,23 +60,23 @@ func TestGORMRepositoryGet(t *testing.T) {
 	dbErr = repo.Get(scope)
 	assert.Nil(t, dbErr)
 
-	err = scope.SetIncludedPrimaries()
+	err = scope.SetCollectionValues()
 	assert.NoError(t, err)
 
-	t.Log(scope.Value)
+	// t.Log(scope.Value)
 
-	for _, includedScope := range scope.IncludedScopes {
-		if len(includedScope.IncludeValues) > 0 {
-			t.Log(includedScope.PrimaryFilters[0].Values[0].Values)
-			dbErr = repo.List(includedScope)
-			assert.Nil(t, dbErr)
-			manyIncludes := includedScope.Value.([]*PetGORM)
-			t.Log(manyIncludes[0])
-		} else {
-			t.Log("No values")
-		}
+	// for _, includedScope := range scope.IncludedScopes {
+	// 	if len(includedScope.IncludeValues) > 0 {
+	// 		t.Log(includedScope.PrimaryFilters[0].Values[0].Values)
+	// 		dbErr = repo.List(includedScope)
+	// 		assert.Nil(t, dbErr)
+	// 		manyIncludes := includedScope.Value.([]*PetGORM)
+	// 		t.Log(manyIncludes[0])
+	// 	} else {
+	// 		t.Log("No values")
+	// 	}
 
-	}
+	// }
 
 }
 
@@ -113,30 +113,29 @@ func TestGORMRepositoryList(t *testing.T) {
 	dbErr = repo.List(scope)
 	assert.Nil(t, dbErr)
 
-	err = scope.SetIncludedPrimaries()
-
+	err = scope.SetCollectionValues()
 	assert.NoError(t, err)
 
-	for _, includedScope := range scope.IncludedScopes {
-		dbErr = repo.List(includedScope)
-		assert.Nil(t, dbErr)
+	// for _, includedScope := range scope.IncludedScopes {
+	// 	dbErr = repo.List(includedScope)
+	// 	assert.Nil(t, dbErr)
 
-	}
+	// }
 
-	many, ok := scope.Value.([]*PetGORM)
-	assert.True(t, ok)
+	// many, ok := scope.Value.([]*PetGORM)
+	// assert.True(t, ok)
 
-	for _, single := range many {
-		t.Log(single)
-	}
+	// for _, single := range many {
+	// 	t.Log(single)
+	// }
 
-	manyU, ok := scope.IncludedScopes[c.MustGetModelStruct(&UserGORM{})].Value.([]*UserGORM)
-	assert.True(t, ok)
+	// manyU, ok := scope.IncludedScopes[c.MustGetModelStruct(&UserGORM{})].Value.([]*UserGORM)
+	// assert.True(t, ok)
 
-	t.Log("Includes!")
-	for _, single := range manyU {
-		t.Log(single)
-	}
+	// t.Log("Includes!")
+	// for _, single := range manyU {
+	// 	t.Log(single)
+	// }
 
 }
 

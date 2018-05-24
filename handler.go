@@ -4,37 +4,56 @@ import (
 	"github.com/kucjac/jsonapi"
 	"github.com/kucjac/uni-db"
 	"github.com/kucjac/uni-logger"
+	"golang.org/x/text/language"
 	"net/http"
 	"reflect"
 	"strconv"
 )
 
 type JSONAPIHandler struct {
-	controller        *jsonapi.Controller
-	log               unilogger.ExtendedLeveledLogger
-	repos             map[reflect.Type]Repository
-	defaultRepository Repository
-	dbErrMgr          *ErrorManager
+	// jsonapi controller
+	Controller *jsonapi.Controller
+
+	// Logger
+	log unilogger.ExtendedLeveledLogger
+
+	// Repositories
+	Repositories      map[reflect.Type]Repository
+	DefaultRepository Repository
+
+	// DBErrMgr database error manager
+	DBErrMgr *ErrorManager
+
+	// Supported Languages
+	SupportedLanguages []language.Tag
+
+	// LanguageMatcher matches the possible language
+	LanguageMatcher language.Matcher
 }
 
 func NewHandler(
 	c *jsonapi.Controller,
 	log unilogger.ExtendedLeveledLogger,
-	dbErrMgr *ErrorManager,
+	DBErrMgr *ErrorManager,
 ) *JSONAPIHandler {
-	if dbErrMgr == nil {
-		dbErrMgr = NewDBErrorMgr()
+	if DBErrMgr == nil {
+		DBErrMgr = NewDBErrorMgr()
 	}
 	return &JSONAPIHandler{
-		controller: c,
-		log:        log,
-		repos:      make(map[reflect.Type]Repository),
-		dbErrMgr:   dbErrMgr,
+		Controller:   c,
+		log:          log,
+		Repositories: make(map[reflect.Type]Repository),
+		DBErrMgr:     DBErrMgr,
 	}
 }
 
-func (h *JSONAPIHandler) SetDefaultRepo(repository Repository) {
-	h.defaultRepository = repository
+func (h *JSONAPIHandler) SetLanguages(languages ...language.Tag) {
+	h.LanguageMatcher = language.NewMatcher(languages)
+	h.SupportedLanguages = languages
+}
+
+func (h *JSONAPIHandler) SetDefaultRepo(Repositoriesitory Repository) {
+	h.DefaultRepository = Repositoriesitory
 }
 
 func (h *JSONAPIHandler) GetModelsRepository(model interface{}) Repository {
@@ -49,215 +68,18 @@ func (h *JSONAPIHandler) GetModelRepositoryByType(modelType reflect.Type) Reposi
 	return h.getModelRepositoryByType(modelType)
 }
 
-func (h *JSONAPIHandler) getModelRepositoryByType(modelType reflect.Type) Repository {
-	repo, ok := h.repos[modelType]
-	if !ok {
-		repo = h.defaultRepository
-	}
-	return repo
-}
-
-func (h *JSONAPIHandler) Create(model interface{}) http.HandlerFunc {
-	return func(rw http.ResponseWriter, req *http.Request) {
-		SetJSONAPIType(rw)
-		scope := h.UnmarshalScope(model, rw, req)
-		if scope == nil {
-			return
-		}
-
-		repo := h.GetModelsRepository(model)
-		if dbErr := repo.Create(scope); dbErr != nil {
-			h.manageDBError(rw, dbErr)
-			return
-		}
-		h.MarshalScope(scope, rw, req, model)
-		rw.WriteHeader(http.StatusCreated)
-	}
-}
-
-func (h *JSONAPIHandler) Get(model interface{}) http.HandlerFunc {
-	return func(rw http.ResponseWriter, req *http.Request) {
-		SetJSONAPIType(rw)
-		scope, errs, err := h.controller.BuildScopeSingle(req, model)
-		if err != nil {
-			h.log.Error(err)
-			h.MarshalInternalError(rw)
-			return
-		}
-		if errs != nil {
-			h.MarshalErrors(rw, errs...)
-			return
-		}
-
-		repo := h.GetModelsRepository(model)
-		dbErr := repo.Get(scope)
-		if dbErr != nil {
-			h.manageDBError(rw, dbErr)
-			return
-		}
-
-		for _, includedScope := range scope.IncludedScopes {
-			if len(includedScope.IncludeValues) > 0 {
-				includeRepo := h.getModelRepositoryByType(includedScope.Struct.GetType())
-				if dbErr = includeRepo.List(includedScope); dbErr != nil {
-					h.manageDBError(rw, dbErr)
-					return
-				}
-			}
-		}
-
-		// get included
-		h.MarshalScope(scope, rw, req, model)
-		return
-	}
-}
-
-func (h *JSONAPIHandler) List(model interface{}) http.HandlerFunc {
-	return func(rw http.ResponseWriter, req *http.Request) {
-		SetJSONAPIType(rw)
-		scope, errs, err := h.controller.BuildScopeList(req, model)
-		if err != nil {
-			h.log.Error(err)
-			h.MarshalInternalError(rw)
-			return
-		}
-		if len(errs) > 0 {
-			h.MarshalErrors(rw, errs...)
-			return
-		}
-
-		repo := h.GetModelsRepository(model)
-
-		dbErr := repo.List(scope)
-		if dbErr != nil {
-			h.manageDBError(rw, dbErr)
-			return
-		}
-		// get included
-
-		for _, includedScope := range scope.IncludedScopes {
-			if len(includedScope.IncludeValues) > 0 {
-				includedRepo := h.GetModelRepositoryByType(scope.Struct.GetType())
-				if dbErr = includedRepo.List(includedScope); dbErr != nil {
-					h.manageDBError(rw, dbErr)
-					return
-				}
-			}
-		}
-
-		h.MarshalScope(scope, rw, req, model)
-
-		return
-	}
-}
-
-// func (h *JSONAPIHandler) GetRelated(root interface{}) http.HandlerFunc {
-// 	return func(rw http.ResponseWriter, req *http.Request) {
-
-// 	}
-// }
-
-func (h *JSONAPIHandler) Patch(model interface{}) http.HandlerFunc {
-	return func(rw http.ResponseWriter, req *http.Request) {
-		// UnmarshalScope from the request body.
-		SetJSONAPIType(rw)
-		scope := h.UnmarshalScope(model, rw, req)
-		if scope == nil {
-			return
-		}
-
-		// Set the ID for given model's scope
-		errs, err := h.controller.SetIDFilter(req, scope)
-		if err != nil {
-			h.errSetIDFilter(scope, err, rw, req)
-			return
-		}
-		if len(errs) > 0 {
-			h.MarshalErrors(rw, errs...)
-			return
-		}
-
-		// Get the repository for given model
-		repo := h.GetModelsRepository(model)
-
-		// Use Patch Method on given model's repository for given scope.
-		if dbErr := repo.Patch(scope); dbErr != nil {
-			h.manageDBError(rw, dbErr)
-			return
-		}
-		rw.WriteHeader(http.StatusNoContent)
-		return
-	}
-}
-
-func (h *JSONAPIHandler) Delete(model interface{}) http.HandlerFunc {
-	return func(rw http.ResponseWriter, req *http.Request) {
-		// Create a scope for given delete handler
-		SetJSONAPIType(rw)
-		scope, err := h.controller.NewScope(model)
-		if err != nil {
-			h.log.Errorf("Error while creating scope: '%v'", err)
-			h.MarshalInternalError(rw)
-			return
-		}
-
-		// Set the ID for given model's scope
-		errs, err := h.controller.SetIDFilter(req, scope)
-		if err != nil {
-			h.errSetIDFilter(scope, err, rw, req)
-			return
-		}
-		if len(errs) > 0 {
-			h.MarshalErrors(rw, errs...)
-			return
-		}
-
-		repo := h.GetModelsRepository(model)
-
-		if dbErr := repo.Delete(scope); dbErr != nil {
-			h.manageDBError(rw, dbErr)
-			return
-		}
-		rw.WriteHeader(http.StatusNoContent)
-	}
-}
-
-func (h *JSONAPIHandler) GetIncluded(scope *jsonapi.Scope) bool {
-
-	// var nestedScopes []*jsonapi.Scope
-	// // at first get all includedFields from the first part
-	// for _, includedField := range scope.IncludedFields {
-	// 	if len(includedField.Scope.IncludeValues) > 0 {
-	// 		includedRepo := h.GetModelRepositoryByType(scope.Struct.GetType())
-	// 		if dbErr := includedRepo.List(includedScope); dbErr != nil {
-	// 			h.manageDBError(rw, dbErr)
-	// 			return false
-	// 		}
-	// 	}
-	// 	for _, nestedInclude := range includedField.Scope.IncludedFields {
-	// 		if nestedScopes == nil {
-	// 			nestedScopes = make([]*jsonapi.Scope, 0)
-	// 		}
-	// 		nestedInclude.S
-	// 	}
-	// }
-
-	return true
-}
-
 func (h *JSONAPIHandler) MarshalScope(
 	scope *jsonapi.Scope,
 	rw http.ResponseWriter,
 	req *http.Request,
-	model interface{},
 ) {
-	payload, err := h.controller.MarshalScope(scope)
+	payload, err := h.Controller.MarshalScope(scope)
 	if err != nil {
-		h.errMarshalScope(model, err, rw, req)
+		h.errMarshalScope(err, scope.Struct.GetType(), rw, req)
 		return
 	}
 	if err = jsonapi.MarshalPayload(rw, payload); err != nil {
-		h.errMarshalPayload(payload, model, err, rw, req)
+		h.errMarshalPayload(payload, err, scope.Struct.GetType(), rw, req)
 		return
 	}
 }
@@ -267,14 +89,21 @@ func (h *JSONAPIHandler) UnmarshalScope(
 	rw http.ResponseWriter,
 	req *http.Request,
 ) *jsonapi.Scope {
-	scope, errObj, err := jsonapi.UnmarshalScopeOne(req.Body, h.controller)
+	scope, errObj, err := jsonapi.UnmarshalScopeOne(req.Body, h.Controller)
 	if err != nil {
 		h.log.Errorf("Error while unmarshaling: '%v' for path: '%s' and method: %s. Error: %s.", reflect.TypeOf(model), req.URL.Path, req.Method, err)
 		h.MarshalInternalError(rw)
 		return nil
 	}
+
 	if errObj != nil {
 		h.MarshalErrors(rw, errObj)
+		return nil
+	}
+
+	if t := reflect.TypeOf(model).Elem(); scope.Struct.GetType() != t {
+		h.log.Errorf("Model and the path collection does not match for path: '%s' and method: '%s' for model: %v", req.URL.Path, req.Method, t)
+		h.MarshalInternalError(rw)
 		return nil
 	}
 	return scope
@@ -301,14 +130,86 @@ func (h *JSONAPIHandler) MarshalErrors(rw http.ResponseWriter, errors ...*jsonap
 	jsonapi.MarshalErrors(rw, errors...)
 }
 
+func SetContentType(rw http.ResponseWriter) {
+	rw.Header().Set("Content-Type", jsonapi.MediaType)
+}
+
+func (h *JSONAPIHandler) getModelRepositoryByType(modelType reflect.Type) Repository {
+	repo, ok := h.Repositories[modelType]
+	if !ok {
+		repo = h.DefaultRepository
+	}
+	return repo
+}
+
+// Exported method to get included values for given scope
+func (h *JSONAPIHandler) GetIncluded(
+	scope *jsonapi.Scope,
+	rw http.ResponseWriter,
+	req *http.Request,
+	tag language.Tag,
+) (correct bool) {
+	// if the scope is the root and there is no included scopes return fast.
+	if scope.IsRoot() && len(scope.IncludedScopes) == 0 {
+		return true
+	}
+
+	if err := scope.SetCollectionValues(); err != nil {
+		h.log.Errorf("Setting collection values for the scope of type: %v. Err: %v", scope.Struct.GetType(), err)
+		h.MarshalInternalError(rw)
+		return
+	}
+	// h.log.Debugf("After setting collection values for: %v", scope.Struct.GetType())
+
+	// h.log.Debug(scope.GetCollectionScope().IncludedValues)
+
+	for scope.NextIncludedField() {
+		includedField, err := scope.CurrentIncludedField()
+		if err != nil {
+			h.log.Error(err)
+			h.MarshalInternalError(rw)
+			return
+		}
+
+		missing, err := includedField.GetMissingPrimaries()
+		if err != nil {
+			h.log.Errorf("While getting missing objects for: '%v'over included field an error occured: %v", includedField.GetFieldName(), err)
+			h.MarshalInternalError(rw)
+			return
+		}
+
+		if len(missing) > 0 {
+			includedField.Scope.SetIDFilters(missing...)
+			if includedField.Scope.UseI18n() {
+				includedField.Scope.SetLanguageFilter(tag.String())
+			}
+			includedRepo := h.GetModelRepositoryByType(includedField.Scope.Struct.GetType())
+
+			// Get NewMultipleValue
+			includedField.Scope.NewValueMany()
+			dbErr := includedRepo.List(includedField.Scope)
+			if dbErr != nil {
+				h.manageDBError(rw, dbErr)
+				return
+			}
+
+			if correct = h.GetIncluded(includedField.Scope, rw, req, tag); !correct {
+				return
+			}
+		}
+	}
+	scope.ResetIncludedField()
+	return true
+}
+
 func (h *JSONAPIHandler) manageDBError(rw http.ResponseWriter, dbErr *unidb.Error) {
-	h.log.Info(dbErr)
-	errObj, err := h.dbErrMgr.Handle(dbErr)
+	errObj, err := h.DBErrMgr.Handle(dbErr)
 	if err != nil {
 		h.log.Error(dbErr.Message)
 		h.MarshalInternalError(rw)
 		return
 	}
+
 	h.MarshalErrors(rw, errObj)
 	return
 }
@@ -319,32 +220,28 @@ func (h *JSONAPIHandler) errSetIDFilter(
 	rw http.ResponseWriter,
 	req *http.Request,
 ) {
-	h.log.Errorf("Error while setting id filter for the path: '%s', and scope: '%+v'. Error: %v", req.URL.Path, scope, err)
+	h.log.Errorf("Error while setting id filter for the path: '%s', and scope: of type '%v'. Error: %v", req.URL.Path, scope.Struct.GetType(), err)
 	h.MarshalInternalError(rw)
 	return
 }
 
 func (h *JSONAPIHandler) errMarshalPayload(
 	payload jsonapi.Payloader,
-	model interface{},
 	err error,
+	model reflect.Type,
 	rw http.ResponseWriter,
 	req *http.Request,
 ) {
-	h.log.Errorf("Error while marshaling payload: '%v'. For model: '%v', Path: '%s', Method: '%s', Error: %v", payload, reflect.TypeOf(model), req.URL.Path, req.Method, err)
+	h.log.Errorf("Error while marshaling payload: '%v'. For model: '%v', Path: '%s', Method: '%s', Error: %v", payload, model, req.URL.Path, req.Method, err)
 	h.MarshalInternalError(rw)
 }
 
 func (h *JSONAPIHandler) errMarshalScope(
-	model interface{},
 	err error,
+	model reflect.Type,
 	rw http.ResponseWriter,
 	req *http.Request,
 ) {
-	h.log.Errorf("Error while marshaling scope for model: '%v', for path: '%s', and method: '%s', Error: %s", reflect.TypeOf(model), req.URL.Path, req.Method, err)
+	h.log.Errorf("Error while marshaling scope for model: '%v', for path: '%s', and method: '%s', Error: %s", model, req.URL.Path, req.Method, err)
 	h.MarshalInternalError(rw)
-}
-
-func SetJSONAPIType(rw http.ResponseWriter) {
-	rw.Header().Set("Content-Type", jsonapi.MediaType)
 }
