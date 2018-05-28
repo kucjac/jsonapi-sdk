@@ -132,7 +132,6 @@ func (g *GORMRepository) getRelationship(
 
 		// funcs
 		getRelationshipSingle = func(singleValue reflect.Value) error {
-
 			var isSlice bool
 			relationValue := singleValue.Elem().Field(field.GetFieldIndex())
 			t := field.GetFieldType()
@@ -162,6 +161,21 @@ func (g *GORMRepository) getRelationship(
 			return nil
 		}
 	)
+
+	defer func() {
+		if r := recover(); r != nil {
+			switch perr := r.(type) {
+			case *reflect.ValueError:
+				err = fmt.Errorf("Provided invalid value input to the repository. Error: %s", perr.Error())
+			case error:
+				err = perr
+			case string:
+				err = errors.New(perr)
+			default:
+				err = fmt.Errorf("Unknown panic occured during getting scope's relationship.")
+			}
+		}
+	}()
 
 	fieldScope = g.db.NewScope(reflect.New(field.GetFieldType()).Elem().Interface())
 	if fieldScope == nil {
