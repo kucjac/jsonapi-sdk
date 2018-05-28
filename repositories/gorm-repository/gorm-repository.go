@@ -99,10 +99,11 @@ func (g *GORMRepository) getRelationship(
 	gormScope *gorm.Scope,
 ) error {
 	var (
-		fieldScope        *gorm.Scope
-		gormField         *gorm.StructField
-		fkField           *gorm.Field
-		err               error
+		fieldScope *gorm.Scope
+		gormField  *gorm.StructField
+		fkField    *gorm.Field
+		err        error
+
 		getDBRelationship = func(singleValue, relationValue reflect.Value) error {
 			db := g.db.New()
 			assoc := db.Model(singleValue.Interface()).

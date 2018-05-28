@@ -47,6 +47,8 @@ func NewHandler(
 	}
 }
 
+// SetLanguages sets the default langauges for given handler.
+// Creates the language matcher for given languages.
 func (h *JSONAPIHandler) SetLanguages(languages ...language.Tag) {
 	h.LanguageMatcher = language.NewMatcher(languages)
 	h.SupportedLanguages = languages
