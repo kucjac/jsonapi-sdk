@@ -4,7 +4,13 @@ import (
 	"github.com/jinzhu/gorm"
 	_ "github.com/jinzhu/gorm/dialects/sqlite"
 	"github.com/kucjac/jsonapi"
+	"github.com/kucjac/jsonapi-sdk"
+	"github.com/kucjac/uni-logger"
 	"github.com/stretchr/testify/assert"
+	"golang.org/x/text/language"
+	"io"
+	"log"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"testing"
@@ -34,6 +40,7 @@ func TestGORMRepositoryGet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	defer clearDB()
 	repo, err := prepareGORMRepo(&UserGORM{}, &PetGORM{})
 	if err != nil {
@@ -171,6 +178,35 @@ func clearDB() error {
 	// os.IsPermission(err)
 	// return nil
 	return os.Remove("test.db")
+}
+
+var (
+	defaultLanguages = []language.Tag{language.English, language.Polish}
+	blogModels       = []interface{}{&Blog{}, &Post{}, &Comment{}, &User{}}
+)
+
+func getHttpPair(method, target string, body io.Reader,
+) (rw *httptest.ResponseRecorder, req *http.Request) {
+	req = httptest.NewRequest(method, target, body)
+	req.Header.Add("Content-Type", jsonapi.MediaType)
+	rw = httptest.NewRecorder()
+	return
+}
+
+func prepareHandler(languages []language.Tag, models ...interface{}) *jsonapisdk.JSONAPIHandler {
+	c := jsonapi.New()
+
+	logger := unilogger.MustGetLoggerWrapper(unilogger.NewBasicLogger(os.Stderr, "", log.Ldate))
+
+	h := jsonapisdk.NewHandler(c, logger, jsonapisdk.NewDBErrorMgr())
+	err := c.PrecomputeModels(models...)
+	if err != nil {
+		panic(err)
+	}
+
+	h.SetLanguages(languages...)
+
+	return h
 }
 
 func settleUsers(db *gorm.DB) error {

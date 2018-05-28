@@ -7,15 +7,19 @@ import (
 )
 
 func CheckGormModels(db *gorm.DB, c *jsonapi.Controller, models ...interface{}) error {
+	return checkModels(db, c, models...)
+}
+
+func checkModels(db *gorm.DB, c *jsonapi.Controller, models ...interface{}) error {
 	for _, model := range models {
-		if err := checkModel(model, db, c); err != nil {
+		if err := checkSingleModel(model, db, c); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func checkModel(model interface{}, db *gorm.DB, c *jsonapi.Controller) error {
+func checkSingleModel(model interface{}, db *gorm.DB, c *jsonapi.Controller) error {
 	scope := db.NewScope(model)
 	jsonAPIStruct, err := c.GetModelStruct(model)
 	if err != nil {

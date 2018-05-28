@@ -326,6 +326,37 @@ func TestGetRelationship(t *testing.T) {
 	h.GetRelationship(&Blog{}).ServeHTTP(rw, req)
 	assert.Equal(t, 500, rw.Result().StatusCode)
 
+	// Case 7:
+	// Provided empty value for the scope.Value
+	rw, req = getHttpPair("GET", "/blogs/1/relationships/current_post", nil)
+	mockRepo.On("Get", mock.AnythingOfType("*jsonapi.Scope")).Once().Return(nil).Run(func(args mock.Arguments) {
+		arg := args[0].(*jsonapi.Scope)
+		arg.Value = nil
+	})
+	h.GetRelationship(&Blog{}).ServeHTTP(rw, req)
+	assert.Equal(t, 500, rw.Result().StatusCode)
+
+	// Case 8:
+	// Provided nil relationship value within scope
+	rw, req = getHttpPair("GET", "/blogs/1/relationships/current_post", nil)
+	mockRepo.On("Get", mock.AnythingOfType("*jsonapi.Scope")).Once().Return(nil).Run(func(args mock.Arguments) {
+		arg := args[0].(*jsonapi.Scope)
+		arg.Value = &Blog{ID: 1}
+	})
+	h.GetRelationship(&Blog{}).ServeHTTP(rw, req)
+	assert.Equal(t, 200, rw.Result().StatusCode)
+
+	// Case 9:
+	// Provided empty slice in hasMany relationship within scope
+	rw, req = getHttpPair("GET", "/authors/1/relationships/blogs", nil)
+	mockRepo.On("Get", mock.AnythingOfType("*jsonapi.Scope")).Once().Return(nil).Run(func(args mock.Arguments) {
+		arg := args[0].(*jsonapi.Scope)
+		arg.Value = &Author{ID: 1}
+	})
+
+	h.GetRelationship(&Author{}).ServeHTTP(rw, req)
+	assert.Equal(t, 200, rw.Result().StatusCode)
+
 }
 
 func TestHandlerList(t *testing.T) {
