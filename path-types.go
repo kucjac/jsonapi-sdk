@@ -1,52 +1,40 @@
 package jsonapisdk
 
-type EndpointHandler int
+type EndpointType int
 
 const (
-	UnkownPath EndpointHandler = iota
+	UnkownPath EndpointType = iota
 	Create
 	Get
-	GetRelated
-	GetRelationship
 	List
 	Patch
 	Delete
 )
 
-type Handlers []EndpointHandler
-
 var (
-	FullCRUD Handlers = []EndpointHandler{
+	FullCRUD = []EndpointType{
 		Create,
 		Get,
-		GetRelated,
-		GetRelationship,
 		List,
 		Patch,
 		Delete,
 	}
 
-	ReadOnly Handlers = []EndpointHandler{
+	ReadOnly = []EndpointType{
 		Get,
-		GetRelated,
-		GetRelationship,
 		List,
 	}
 
-	CreateReadUpdate Handlers = []EndpointHandler{
+	CreateReadUpdate = []EndpointType{
 		Create,
 		Get,
-		GetRelated,
-		GetRelationship,
 		List,
 		Patch,
 	}
 
-	CreateRead Handlers = []EndpointHandler{
+	CreateRead = []EndpointType{
 		Create,
 		Get,
-		GetRelated,
-		GetRelationship,
 		List,
 	}
 )

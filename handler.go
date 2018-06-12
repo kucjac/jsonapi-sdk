@@ -15,7 +15,7 @@ type JSONAPIHandler struct {
 	Controller *jsonapi.Controller
 
 	// Logger
-	log unilogger.ExtendedLeveledLogger
+	log unilogger.LeveledLogger
 
 	// Repositories
 	Repositories      map[reflect.Type]Repository
@@ -29,11 +29,14 @@ type JSONAPIHandler struct {
 
 	// LanguageMatcher matches the possible language
 	LanguageMatcher language.Matcher
+
+	// ModelHandlers
+	ModelHandlers []*ModelHandler
 }
 
 func NewHandler(
 	c *jsonapi.Controller,
-	log unilogger.ExtendedLeveledLogger,
+	log unilogger.LeveledLogger,
 	DBErrMgr *ErrorManager,
 ) *JSONAPIHandler {
 	if DBErrMgr == nil {
