@@ -36,4 +36,5 @@ type Post struct {
 type Comment struct {
 	ID   int    `jsonapi:"primary,comments"`
 	Body string `jsonapi:"attr,body"`
+	Post *Post  `jsonapi:"relation,post,hidden"`
 }

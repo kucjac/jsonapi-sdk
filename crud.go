@@ -34,7 +34,7 @@ func (h *JSONAPIHandler) Create(model *ModelHandler) http.HandlerFunc {
 
 		// Handle Presets
 		for _, pair := range model.Create.Presets {
-			values, ok := h.GetPresetValues(pair.Scope, rw)
+			values, ok := h.GetPresetValues(pair.Scope, pair.Filter, rw)
 			if !ok {
 				return
 			}
@@ -49,7 +49,7 @@ func (h *JSONAPIHandler) Create(model *ModelHandler) http.HandlerFunc {
 
 		// Handle Prechecks
 		for _, pair := range model.Create.Prechecks {
-			values, ok := h.GetPresetValues(pair.Scope, rw)
+			values, ok := h.GetPresetValues(pair.Scope, pair.Filter, rw)
 			if !ok {
 				return
 			}
@@ -115,7 +115,7 @@ func (h *JSONAPIHandler) Get(model *ModelHandler) http.HandlerFunc {
 
 		// Preset filters
 		for _, presetPair := range model.Get.Prechecks {
-			values, ok := h.GetPresetValues(presetPair.Scope, rw)
+			values, ok := h.GetPresetValues(presetPair.Scope, presetPair.Filter, rw)
 			if !ok {
 				return
 			}
@@ -186,7 +186,7 @@ func (h *JSONAPIHandler) GetRelated(root *ModelHandler) http.HandlerFunc {
 		}
 
 		for _, presetPair := range root.Get.Prechecks {
-			values, ok := h.GetPresetValues(presetPair.Scope, rw)
+			values, ok := h.GetPresetValues(presetPair.Scope, presetPair.Filter, rw)
 			if !ok {
 				return
 			}
@@ -277,7 +277,7 @@ func (h *JSONAPIHandler) GetRelationship(root *ModelHandler) http.HandlerFunc {
 
 		// Preset Values
 		for _, presetPair := range root.Get.Prechecks {
-			values, ok := h.GetPresetValues(presetPair.Scope, rw)
+			values, ok := h.GetPresetValues(presetPair.Scope, presetPair.Filter, rw)
 			if !ok {
 				return
 			}
@@ -344,7 +344,7 @@ func (h *JSONAPIHandler) List(model *ModelHandler) http.HandlerFunc {
 		h.HeaderContentLanguage(rw, tag)
 
 		for _, presetPair := range model.List.Prechecks {
-			values, ok := h.GetPresetValues(presetPair.Scope, rw)
+			values, ok := h.GetPresetValues(presetPair.Scope, presetPair.Filter, rw)
 			if !ok {
 				return
 			}
@@ -405,7 +405,7 @@ func (h *JSONAPIHandler) Patch(model *ModelHandler) http.HandlerFunc {
 
 		// Preset filters
 		for _, presetPair := range model.Patch.Prechecks {
-			values, ok := h.GetPresetValues(presetPair.Scope, rw)
+			values, ok := h.GetPresetValues(presetPair.Scope, presetPair.Filter, rw)
 			if !ok {
 				return
 			}
@@ -414,11 +414,7 @@ func (h *JSONAPIHandler) Patch(model *ModelHandler) http.HandlerFunc {
 				h.MarshalInternalError(rw)
 				return
 			}
-			if len(presetPair.Filter.Relationships) > 0 {
-				scope.RelationshipFilters = append(scope.RelationshipFilters, presetPair.Filter)
-			} else {
-				scope.PrimaryFilters = append(scope.PrimaryFilters, presetPair.Filter)
-			}
+			h.addPresetFilter(scope, presetPair.Filter)
 		}
 
 		// Get the Repository for given model
@@ -462,7 +458,7 @@ func (h *JSONAPIHandler) Delete(model *ModelHandler) http.HandlerFunc {
 
 		// Preset filters
 		for _, presetPair := range model.Delete.Prechecks {
-			values, ok := h.GetPresetValues(presetPair.Scope, rw)
+			values, ok := h.GetPresetValues(presetPair.Scope, presetPair.Filter, rw)
 			if !ok {
 				return
 			}

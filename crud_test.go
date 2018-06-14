@@ -136,6 +136,39 @@ func TestHandlerGet(t *testing.T) {
 
 	h.Get(h.ModelHandlers[reflect.TypeOf(Blog{})]).ServeHTTP(rw, req)
 	assert.Equal(t, 500, rw.Result().StatusCode)
+
+	precheckPair := h.Controller.BuildPrecheckScope("preset=blogs.current_post.comments&filter[blogs][id][eq]=1", "filter[comments][post][id]")
+
+	h.ModelHandlers[reflect.TypeOf(Comment{})].AddPrecheckPair(precheckPair, Get)
+
+	mockRepo.On("List", mock.Anything).Once().Return(nil).
+		Run(func(args mock.Arguments) {
+			arg := args.Get(0).(*jsonapi.Scope)
+			arg.Value = []*Blog{{ID: 1, CurrentPost: &Post{ID: 3}}}
+		})
+
+	mockRepo.On("List", mock.Anything).Once().Return(nil).Run(
+		func(args mock.Arguments) {
+			arg := args.Get(0).(*jsonapi.Scope)
+			t.Logf("%v", arg.Fieldset)
+			arg.Value = []*Post{{ID: 3, Comments: []*Comment{{ID: 1}, {ID: 3}}}}
+		})
+	mockRepo.On("List", mock.Anything).Once().Return(nil).Run(
+		func(args mock.Arguments) {
+			arg := args.Get(0).(*jsonapi.Scope)
+			arg.Value = []*Comment{{ID: 1}, {ID: 3}}
+		})
+
+	mockRepo.On("Get", mock.Anything).Once().Return(nil).Run(
+		func(args mock.Arguments) {
+			arg := args.Get(0).(*jsonapi.Scope)
+			t.Logf("Get filters: '%v'", arg.RelationshipFilters[0].Relationships[0].Values[0].Values)
+			arg.Value = []*Comment{{ID: 1, Body: "Some body"}, {ID: 3, Body: "Other body"}}
+		})
+
+	rw, req = getHttpPair("GET", "/comments/1", nil)
+	h.Get(h.ModelHandlers[reflect.TypeOf(Comment{})]).ServeHTTP(rw, req)
+
 }
 
 func TestHandlerGetRelated(t *testing.T) {
@@ -508,44 +541,44 @@ func TestHandlerList(t *testing.T) {
 // 	t.Log(rw.Body)
 // }
 
-// func TestHandlerDelete(t *testing.T) {
-// 	h := prepareHandler(defaultLanguages, blogModels...)
-// 	mockRepo := &MockRepository{}
-// 	h.SetDefaultRepo(mockRepo)
+func TestHandlerDelete(t *testing.T) {
+	h := prepareHandler(defaultLanguages, blogModels...)
+	mockRepo := &MockRepository{}
+	h.SetDefaultRepo(mockRepo)
 
-// 	// Case 1:
-// 	// Correct delete.
-// 	rw, req := getHttpPair("DELETE", "/blogs/1", nil)
-// 	mockRepo.On("Delete", mock.AnythingOfType("*jsonapi.Scope")).Once().Return(nil)
-// 	h.Delete(h.ModelHandlers[reflect.TypeOf(Blog{})]).ServeHTTP(rw, req)
-// 	assert.Equal(t, 204, rw.Result().StatusCode)
+	// Case 1:
+	// Correct delete.
+	rw, req := getHttpPair("DELETE", "/blogs/1", nil)
+	mockRepo.On("Delete", mock.AnythingOfType("*jsonapi.Scope")).Once().Return(nil)
+	h.Delete(h.ModelHandlers[reflect.TypeOf(Blog{})]).ServeHTTP(rw, req)
+	assert.Equal(t, 204, rw.Result().StatusCode)
 
-// 	// Case 2:
-// 	// Invalid model provided
-// 	// rw, req = getHttpPair("DELETE", "/models/1", nil)
-// 	// h.Delete(h.ModelHandlers[reflect.TypeOf(Model{})]).ServeHTTP(rw, req)
-// 	// assert.Equal(t, 500, rw.Result().StatusCode)
+	// Case 2:
+	// Invalid model provided
+	// rw, req = getHttpPair("DELETE", "/models/1", nil)
+	// h.Delete(h.ModelHandlers[reflect.TypeOf(Model{})]).ServeHTTP(rw, req)
+	// assert.Equal(t, 500, rw.Result().StatusCode)
 
-// 	// Case 3:
-// 	// Invalid url for ID - internal
-// 	rw, req = getHttpPair("DELETE", "/blogs", nil)
-// 	h.Delete(h.ModelHandlers[reflect.TypeOf(Blog{})]).ServeHTTP(rw, req)
-// 	assert.Equal(t, 500, rw.Result().StatusCode)
+	// Case 3:
+	// Invalid url for ID - internal
+	rw, req = getHttpPair("DELETE", "/blogs", nil)
+	h.Delete(h.ModelHandlers[reflect.TypeOf(Blog{})]).ServeHTTP(rw, req)
+	assert.Equal(t, 500, rw.Result().StatusCode)
 
-// 	// Case 4:
-// 	// Invalid ID - user error
-// 	rw, req = getHttpPair("DELETE", "/blogs/stringtype-id", nil)
-// 	h.Delete(h.ModelHandlers[reflect.TypeOf(Blog{})]).ServeHTTP(rw, req)
-// 	assert.Equal(t, 400, rw.Result().StatusCode)
+	// Case 4:
+	// Invalid ID - user error
+	rw, req = getHttpPair("DELETE", "/blogs/stringtype-id", nil)
+	h.Delete(h.ModelHandlers[reflect.TypeOf(Blog{})]).ServeHTTP(rw, req)
+	assert.Equal(t, 400, rw.Result().StatusCode)
 
-// 	// Case 5:
-// 	// Repository error
-// 	rw, req = getHttpPair("DELETE", "/blogs/1", nil)
-// 	mockRepo.On("Delete", mock.AnythingOfType("*jsonapi.Scope")).Once().Return(unidb.ErrIntegrConstViolation.New())
-// 	h.Delete(h.ModelHandlers[reflect.TypeOf(Blog{})]).ServeHTTP(rw, req)
-// 	assert.Equal(t, 400, rw.Result().StatusCode)
+	// Case 5:
+	// Repository error
+	rw, req = getHttpPair("DELETE", "/blogs/1", nil)
+	mockRepo.On("Delete", mock.AnythingOfType("*jsonapi.Scope")).Once().Return(unidb.ErrIntegrConstViolation.New())
+	h.Delete(h.ModelHandlers[reflect.TypeOf(Blog{})]).ServeHTTP(rw, req)
+	assert.Equal(t, 400, rw.Result().StatusCode)
 
-// }
+}
 
 var (
 	defaultLanguages = []language.Tag{language.English, language.Polish}

@@ -214,25 +214,32 @@ func (h *JSONAPIHandler) GetIncluded(
 }
 
 // GetPresetValues gets the values from the presetScope
-func (h *JSONAPIHandler) GetPresetValues(presetScope *jsonapi.Scope, rw http.ResponseWriter,
+func (h *JSONAPIHandler) GetPresetValues(
+	presetScope *jsonapi.Scope,
+	filter *jsonapi.FilterField,
+	rw http.ResponseWriter,
 ) (values []interface{}, ok bool) {
-	var model *ModelHandler
-	model, ok = h.ModelHandlers[presetScope.Struct.GetType()]
-	if !ok {
-		h.log.Error("Preset model not found within jsonapi handler.")
-		h.MarshalInternalError(rw)
-		return
-	}
+	// var model *ModelHandler
+	// model, ok = h.ModelHandlers[presetScope.Struct.GetType()]
+	// if !ok {
+	// 	h.log.Error("Preset model not found within jsonapi handler.")
+	// 	h.MarshalInternalError(rw)
+	// 	return
+	// }
 
-	dbErr := model.Repository.List(presetScope)
+	repo := h.GetRepositoryByType(presetScope.Struct.GetType())
+	presetScope.NewValueMany()
+
+	dbErr := repo.List(presetScope)
 	if dbErr != nil {
 		h.manageDBError(rw, dbErr)
 		ok = false
 		return
 	}
 
-	val := presetScope.Value.([]interface{})
-	if len(val) == 0 {
+	scopeVal := reflect.ValueOf(presetScope.Value)
+
+	if scopeVal.Len() == 0 {
 		err := jsonapi.ErrResourceNotFound.Copy()
 		/**
 
@@ -260,14 +267,20 @@ func (h *JSONAPIHandler) GetPresetValues(presetScope *jsonapi.Scope, rw http.Res
 			return
 		}
 
-		values, ok = h.GetPresetValues(field.Scope, rw)
+		values, ok = h.GetPresetValues(field.Scope, filter, rw)
 		if !ok {
 			return
 		}
 		return
 	}
 
-	return val, true
+	var result []interface{}
+	primpIndex := presetScope.Struct.GetPrimaryField().GetFieldIndex()
+	for i := 0; i < scopeVal.Len(); i++ {
+		result = append(result, scopeVal.Index(i).Elem().Field(primpIndex).Interface())
+	}
+
+	return result, true
 }
 
 // MarshalScope is a handler helper for marshaling the provided scope.
