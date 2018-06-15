@@ -5,6 +5,7 @@ import (
 	"github.com/kucjac/uni-db"
 	"github.com/stretchr/testify/assert"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 )
 
@@ -23,8 +24,8 @@ func TestUnmarshalScope(t *testing.T) {
 	h := prepareHandler(defaultLanguages, blogModels...)
 
 	rw, req := getHttpPair("GET", "/blogs", nil)
-	h.UnmarshalScope(&Blog{}, rw, req)
-	assert.Equal(t, 500, rw.Result().StatusCode)
+	h.UnmarshalScope(reflect.TypeOf(&Blog{}), rw, req)
+	assert.Equal(t, 400, rw.Result().StatusCode)
 }
 
 func TestMarshalErrors(t *testing.T) {

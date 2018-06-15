@@ -29,6 +29,7 @@ type Blog struct {
 type Post struct {
 	ID        int        `jsonapi:"primary,posts"`
 	Title     string     `jsonapi:"attr,title"`
+	BlogID    int        `jsonapi:"attr,blog_id,hidden"`
 	CreatedAt time.Time  `jsonapi:"attr,created_at"`
 	Comments  []*Comment `jsonapi:"relation,comments"`
 }

@@ -10,17 +10,19 @@ import (
 	"gopkg.in/go-playground/validator.v9"
 	"net/http"
 	"reflect"
+	"runtime/debug"
 	"strconv"
 	"time"
 )
 
 var (
-	IErrScopeNoValue       = errors.New("No value provided within scope.")
-	IErrPresetInvalidScope = errors.New("Pressetting invalid scope value.")
-	IErrPresetNoValues     = errors.New("Preset no values")
-	IErrInvalidValueType   = errors.New("Trying to preset values of invalid type.")
-	IErrInvalidScopeType   = errors.New("Invalid scope type. Available values are slice of pointers to struct or pointer to struct")
-	IErrValueNotValid      = errors.New("Value not valid.")
+	IErrScopeNoValue         = errors.New("No value provided within scope.")
+	IErrPresetInvalidScope   = errors.New("Pressetting invalid scope value.")
+	IErrPresetNoValues       = errors.New("Preset no values")
+	IErrInvalidValueType     = errors.New("Trying to preset values of invalid type.")
+	IErrInvalidScopeType     = errors.New("Invalid scope type. Available values are slice of pointers to struct or pointer to struct")
+	IErrValueNotValid        = errors.New("Value not valid.")
+	IErrModelHandlerNotFound = errors.New("Model Handler not found.")
 )
 
 type JSONAPIHandler struct {
@@ -219,13 +221,6 @@ func (h *JSONAPIHandler) GetPresetValues(
 	filter *jsonapi.FilterField,
 	rw http.ResponseWriter,
 ) (values []interface{}, ok bool) {
-	// var model *ModelHandler
-	// model, ok = h.ModelHandlers[presetScope.Struct.GetType()]
-	// if !ok {
-	// 	h.log.Error("Preset model not found within jsonapi handler.")
-	// 	h.MarshalInternalError(rw)
-	// 	return
-	// }
 
 	repo := h.GetRepositoryByType(presetScope.Struct.GetType())
 	presetScope.NewValueMany()
@@ -275,9 +270,9 @@ func (h *JSONAPIHandler) GetPresetValues(
 	}
 
 	var result []interface{}
-	primpIndex := presetScope.Struct.GetPrimaryField().GetFieldIndex()
+	primIndex := presetScope.Struct.GetPrimaryField().GetFieldIndex()
 	for i := 0; i < scopeVal.Len(); i++ {
-		result = append(result, scopeVal.Index(i).Elem().Field(primpIndex).Interface())
+		result = append(result, scopeVal.Index(i).Elem().Field(primIndex).Interface())
 	}
 
 	return result, true
@@ -291,13 +286,17 @@ func (h *JSONAPIHandler) MarshalScope(
 ) {
 	payload, err := h.Controller.MarshalScope(scope)
 	if err != nil {
+		h.log.Errorf("Error while marshaling the scope: %v.", err)
 		h.errMarshalScope(err, scope.Struct.GetType(), rw, req)
 		return
 	}
+
 	if err = jsonapi.MarshalPayload(rw, payload); err != nil {
 		h.errMarshalPayload(payload, err, scope.Struct.GetType(), rw, req)
 		return
 	}
+	return
+
 }
 
 // PresetScopeValue presets provided values for given scope.
@@ -310,7 +309,7 @@ func (h *JSONAPIHandler) PresetScopeValue(
 ) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			h.log.Errorf("Panic within preset scope value: %v", r)
+			h.log.Errorf("Panic within preset scope value. %v. %v", r, string(debug.Stack()))
 			err = IErrPresetInvalidScope
 		}
 	}()
@@ -339,7 +338,10 @@ func (h *JSONAPIHandler) PresetScopeValue(
 
 		case jsonapi.RelationshipSingle:
 			relIndex := fieldFilter.Relationships[0].GetFieldIndex()
-			relatedField := field.Field(relIndex)
+			if field.IsNil() {
+				field.Set(reflect.New(field.Type().Elem()))
+			}
+			relatedField := field.Elem().Field(relIndex)
 			switch relatedField.Kind() {
 			case reflect.Slice:
 				refValues := reflect.ValueOf(values)
@@ -452,13 +454,13 @@ func (h *JSONAPIHandler) SetPresetFilterValues(
 }
 
 func (h *JSONAPIHandler) UnmarshalScope(
-	model interface{},
+	model reflect.Type,
 	rw http.ResponseWriter,
 	req *http.Request,
 ) *jsonapi.Scope {
 	scope, errObj, err := jsonapi.UnmarshalScopeOne(req.Body, h.Controller)
 	if err != nil {
-		h.log.Errorf("Error while unmarshaling: '%v' for path: '%s' and method: %s. Error: %s.", reflect.TypeOf(model), req.URL.Path, req.Method, err)
+		h.log.Errorf("Error while unmarshaling: '%v' for path: '%s' and method: %s. Error: %s.", model, req.URL.Path, req.Method, err)
 		h.MarshalInternalError(rw)
 		return nil
 	}
@@ -468,9 +470,18 @@ func (h *JSONAPIHandler) UnmarshalScope(
 		return nil
 	}
 
-	if t := reflect.TypeOf(model).Elem(); scope.Struct.GetType() != t {
-		h.log.Errorf("Model and the path collection does not match for path: '%s' and method: '%s' for model: %v", req.URL.Path, req.Method, t)
-		h.MarshalInternalError(rw)
+	if scope.Struct.GetType() != model {
+		// h.log.Errorf("Model and the path collection does not match for path: '%s' and method: '%s' for model: %v", req.URL.Path, req.Method, t)
+		// h.MarshalInternalError(rw)
+		mStruct := h.Controller.Models.Get(model)
+		if mStruct == nil {
+			h.log.Errorf("No model found for: '%v' within the controller.", model)
+			h.MarshalInternalError(rw)
+			return nil
+		}
+		errObj = jsonapi.ErrInvalidResourceName.Copy()
+		errObj.Detail = fmt.Sprintf("Provided resource: '%s' is not proper for this endpoint. This endpoint support '%s' collection.", scope.Struct.GetCollectionType(), mStruct.GetCollectionType())
+		h.MarshalErrors(rw, errObj)
 		return nil
 	}
 	return scope

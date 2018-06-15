@@ -21,7 +21,7 @@ func (h *JSONAPIHandler) Create(model *ModelHandler) http.HandlerFunc {
 			return
 		}
 		SetContentType(rw)
-		scope := h.UnmarshalScope(reflect.New(model.ModelType).Interface(), rw, req)
+		scope := h.UnmarshalScope(model.ModelType, rw, req)
 		if scope == nil {
 			return
 		}
@@ -88,8 +88,9 @@ func (h *JSONAPIHandler) Create(model *ModelHandler) http.HandlerFunc {
 			h.manageDBError(rw, dbErr)
 			return
 		}
-		h.MarshalScope(scope, rw, req)
+
 		rw.WriteHeader(http.StatusCreated)
+		h.MarshalScope(scope, rw, req)
 	}
 }
 
@@ -375,6 +376,12 @@ func (h *JSONAPIHandler) List(model *ModelHandler) http.HandlerFunc {
 	}
 }
 
+// Patch the patch endpoint is used to patch given entity.
+// It accepts only the models that matches the provided model Handler.
+// If the incoming model
+// PRESETTING:
+//	- Preset values using PresetScope
+//	- Precheck values using PrecheckScope
 func (h *JSONAPIHandler) Patch(model *ModelHandler) http.HandlerFunc {
 	return func(rw http.ResponseWriter, req *http.Request) {
 		if _, ok := h.ModelHandlers[model.ModelType]; !ok {
@@ -383,7 +390,7 @@ func (h *JSONAPIHandler) Patch(model *ModelHandler) http.HandlerFunc {
 		}
 		// UnmarshalScope from the request body.
 		SetContentType(rw)
-		scope := h.UnmarshalScope(reflect.New(model.ModelType).Interface(), rw, req)
+		scope := h.UnmarshalScope(model.ModelType, rw, req)
 		if scope == nil {
 			return
 		}
@@ -403,7 +410,20 @@ func (h *JSONAPIHandler) Patch(model *ModelHandler) http.HandlerFunc {
 			h.HeaderContentLanguage(rw, tag)
 		}
 
-		// Preset filters
+		for _, presetPair := range model.Patch.Presets {
+			values, ok := h.GetPresetValues(presetPair.Scope, presetPair.Filter, rw)
+			if !ok {
+				return
+			}
+
+			if err := h.PresetScopeValue(scope, presetPair.Filter, values...); err != nil {
+				h.log.Errorf("Cannot preset value while creating model: '%s'.'%s'", model.ModelType.Name(), err)
+				h.MarshalInternalError(rw)
+				return
+			}
+		}
+
+		// Precheck filters
 		for _, presetPair := range model.Patch.Prechecks {
 			values, ok := h.GetPresetValues(presetPair.Scope, presetPair.Filter, rw)
 			if !ok {

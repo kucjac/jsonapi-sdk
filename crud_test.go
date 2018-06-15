@@ -34,7 +34,7 @@ func TestHandlerCreate(t *testing.T) {
 	)).Return(nil)
 
 	h.Create(h.ModelHandlers[reflect.TypeOf(Blog{})]).ServeHTTP(rw, req)
-	assert.Equal(t, 200, rw.Result().StatusCode)
+	assert.Equal(t, 201, rw.Result().StatusCode)
 
 	// Case 2:
 	// Duplicated value
@@ -59,6 +59,43 @@ func TestHandlerCreate(t *testing.T) {
 	rw, req = getHttpPair("POST", "/blogs", strings.NewReader(`{"data":{"type":"unknown_collection"}}`))
 	h.Create(h.ModelHandlers[reflect.TypeOf(Blog{})]).ServeHTTP(rw, req)
 	assert.Equal(t, 400, rw.Result().StatusCode)
+
+	// Case 5:
+	// Preset Values
+	commentModel, ok := h.ModelHandlers[reflect.TypeOf(Comment{})]
+	assert.True(t, ok, "Model not valid")
+
+	presetPair := h.Controller.BuildPresetScope("preset=blogs.current_post&filter[blogs][id][eq]=6", "filter[comments][post][id][in]")
+
+	assert.NoError(t, commentModel.AddPresetPair(presetPair, Create))
+
+	mockRepo.On("List", mock.Anything).Once().Return(nil).Run(
+		func(args mock.Arguments) {
+			arg := args.Get(0).(*jsonapi.Scope)
+			arg.Value = []*Blog{{ID: 6}}
+		})
+
+	mockRepo.On("List", mock.Anything).Once().Return(nil).Run(
+		func(args mock.Arguments) {
+			arg := args.Get(0).(*jsonapi.Scope)
+			arg.Value = []*Post{{ID: 6}}
+		})
+
+	mockRepo.On("Create", mock.Anything).Once().Return(nil).Run(
+		func(args mock.Arguments) {
+			arg := args.Get(0).(*jsonapi.Scope)
+			t.Logf("Create value: \"%+v\"", arg.Value)
+			comment := arg.Value.(*Comment)
+			t.Logf("Post: %v", comment.Post)
+			comment.ID = 3
+
+		})
+
+	rw, req = getHttpPair("POST", "/comments", strings.NewReader(`{"data":{"type":"comments","attributes":{"body":"Some title"}}}`))
+
+	h.Create(commentModel).ServeHTTP(rw, req)
+	assert.Equal(t, 201, rw.Result().StatusCode, rw.Body.String())
+
 }
 
 func TestHandlerGet(t *testing.T) {
@@ -137,7 +174,7 @@ func TestHandlerGet(t *testing.T) {
 	h.Get(h.ModelHandlers[reflect.TypeOf(Blog{})]).ServeHTTP(rw, req)
 	assert.Equal(t, 500, rw.Result().StatusCode)
 
-	precheckPair := h.Controller.BuildPrecheckScope("preset=blogs.current_post.comments&filter[blogs][id][eq]=1", "filter[comments][post][id]")
+	precheckPair := h.Controller.BuildPrecheckScope("preset=blogs.current_post&filter[blogs][id][eq]=1", "filter[comments][post][id]")
 
 	h.ModelHandlers[reflect.TypeOf(Comment{})].AddPrecheckPair(precheckPair, Get)
 
@@ -151,12 +188,7 @@ func TestHandlerGet(t *testing.T) {
 		func(args mock.Arguments) {
 			arg := args.Get(0).(*jsonapi.Scope)
 			t.Logf("%v", arg.Fieldset)
-			arg.Value = []*Post{{ID: 3, Comments: []*Comment{{ID: 1}, {ID: 3}}}}
-		})
-	mockRepo.On("List", mock.Anything).Once().Return(nil).Run(
-		func(args mock.Arguments) {
-			arg := args.Get(0).(*jsonapi.Scope)
-			arg.Value = []*Comment{{ID: 1}, {ID: 3}}
+			arg.Value = []*Post{{ID: 3}}
 		})
 
 	mockRepo.On("Get", mock.Anything).Once().Return(nil).Run(
@@ -500,46 +532,104 @@ func TestHandlerList(t *testing.T) {
 	assert.Equal(t, 500, rw.Result().StatusCode)
 }
 
-// func TestHandlerPatch(t *testing.T) {
-// 	h := prepareHandler(defaultLanguages, blogModels...)
-// 	mockRepo := &MockRepository{}
-// 	h.SetDefaultRepo(mockRepo)
+func TestHandlerPatch(t *testing.T) {
+	h := prepareHandler(defaultLanguages, blogModels...)
+	mockRepo := &MockRepository{}
+	h.SetDefaultRepo(mockRepo)
 
-// 	// Case 1:
-// 	// Correctly Patched
-// 	rw, req := getHttpPair("PATCH", "/blogs/1", h.getModelJSON(&Blog{Lang: "en", CurrentPost: &Post{ID: 2}}))
+	// Case 1:
+	// Correctly Patched
+	rw, req := getHttpPair("PATCH", "/blogs/1", h.getModelJSON(&Blog{Lang: "en", CurrentPost: &Post{ID: 2}}))
 
-// 	mockRepo.On("Patch", mock.Anything).Once().Return(nil)
-// 	h.Patch(h.ModelHandlers[reflect.TypeOf(Blog{})]).ServeHTTP(rw, req)
-// 	assert.Equal(t, 204, rw.Result().StatusCode)
+	mockRepo.On("Patch", mock.Anything).Once().Return(nil)
+	h.Patch(h.ModelHandlers[reflect.TypeOf(Blog{})]).ServeHTTP(rw, req)
+	assert.Equal(t, 204, rw.Result().StatusCode)
 
-// 	// Case 2:
-// 	// Bad model provided for the function  -internal
-// 	rw, req = getHttpPair("PATCH", "/blogs/1", h.getModelJSON(&Blog{Lang: "pl"}))
+	// Case 2:
+	// Patch with preset value
+	presetPair := h.Controller.BuildPrecheckScope("preset=blogs.current_post&filter[blogs][id][eq]=3", "filter[comments][post][id][in]")
 
-// 	h.Patch(h.ModelHandlers[reflect.TypeOf(Blog{})]).ServeHTTP(rw, req)
-// 	assert.Equal(t, 500, rw.Result().StatusCode)
+	commentModel := h.ModelHandlers[reflect.TypeOf(Comment{})]
+	assert.NotNil(t, commentModel, "Nil comment model.")
 
-// 	// Case 3:
-// 	// Incorrect URL for ID provided - internal
-// 	rw, req = getHttpPair("PATCH", "/blogs", h.getModelJSON(&Blog{}))
-// 	h.Patch(h.ModelHandlers[reflect.TypeOf(Blog{})]).ServeHTTP(rw, req)
-// 	assert.Equal(t, 500, rw.Result().StatusCode)
+	commentModel.AddPrecheckPair(presetPair, Patch)
 
-// 	// Case 4:
-// 	// No language provided - user error
-// 	rw, req = getHttpPair("PATCH", "/blogs/1", h.getModelJSON(&Blog{CurrentPost: &Post{ID: 2}}))
-// 	h.Patch(h.ModelHandlers[reflect.TypeOf(Blog{})]).ServeHTTP(rw, req)
-// 	assert.Equal(t, 400, rw.Result().StatusCode)
+	mockRepo.On("List", mock.Anything).Once().Return(nil).Run(
+		func(args mock.Arguments) {
+			arg := args.Get(0).(*jsonapi.Scope)
+			arg.Value = []*Blog{{ID: 3, CurrentPost: &Post{ID: 4}}}
+		})
 
-// 	// Case 5:
-// 	// Repository error
-// 	rw, req = getHttpPair("PATCH", "/blogs/1", h.getModelJSON(&Blog{Lang: "pl", CurrentPost: &Post{ID: 2}}))
-// 	mockRepo.On("Patch", mock.AnythingOfType("*jsonapi.Scope")).Once().Return(unidb.ErrForeignKeyViolation.New())
-// 	h.Patch(h.ModelHandlers[reflect.TypeOf(Blog{})]).ServeHTTP(rw, req)
-// 	assert.Equal(t, 400, rw.Result().StatusCode)
-// 	t.Log(rw.Body)
-// }
+	mockRepo.On("List", mock.Anything).Once().Return(nil).Run(
+		func(args mock.Arguments) {
+			arg := args.Get(0).(*jsonapi.Scope)
+			arg.Value = []*Post{{ID: 4}}
+		})
+
+	mockRepo.On("Patch", mock.Anything).Once().Return(nil).Run(
+		func(args mock.Arguments) {
+			arg := args.Get(0).(*jsonapi.Scope)
+			// t.Logf("%+v", arg)
+			// t.Log(arg.PrimaryFilters[0].Values[0].Values)
+			assert.NotEmpty(t, arg.RelationshipFilters)
+			assert.NotEmpty(t, arg.RelationshipFilters[0].Relationships)
+			assert.NotEmpty(t, arg.RelationshipFilters[0].Relationships[0].Values)
+			t.Log(arg.RelationshipFilters[0].Relationships[0].Values[0].Values)
+			t.Log(arg.RelationshipFilters[0].Relationships[0].Values[0].Operator)
+		})
+
+	rw, req = getHttpPair("PATCH", "/comments/1", h.getModelJSON(&Comment{Body: "Some body."}))
+	h.Patch(commentModel).ServeHTTP(rw, req)
+
+	assert.Equal(t, http.StatusNoContent, rw.Result().StatusCode)
+	commentModel.Patch.Prechecks = nil
+
+	// Case 3:
+	// Incorrect URL for ID provided - internal
+	rw, req = getHttpPair("PATCH", "/blogs", h.getModelJSON(&Blog{}))
+	h.Patch(h.ModelHandlers[reflect.TypeOf(Blog{})]).ServeHTTP(rw, req)
+	assert.Equal(t, 500, rw.Result().StatusCode)
+
+	// Case 4:
+	// No language provided - user error
+	rw, req = getHttpPair("PATCH", "/blogs/1", h.getModelJSON(&Blog{CurrentPost: &Post{ID: 2}}))
+	h.Patch(h.ModelHandlers[reflect.TypeOf(Blog{})]).ServeHTTP(rw, req)
+	assert.Equal(t, 400, rw.Result().StatusCode)
+
+	// Case 5:
+	// Repository error
+	rw, req = getHttpPair("PATCH", "/blogs/1", h.getModelJSON(&Blog{Lang: "pl", CurrentPost: &Post{ID: 2}}))
+	mockRepo.On("Patch", mock.AnythingOfType("*jsonapi.Scope")).Once().Return(unidb.ErrForeignKeyViolation.New())
+	h.Patch(h.ModelHandlers[reflect.TypeOf(Blog{})]).ServeHTTP(rw, req)
+	assert.Equal(t, 400, rw.Result().StatusCode)
+
+	// Case 6:
+	// Preset some hidden value
+
+	presetPair = h.Controller.BuildPresetScope("preset=blogs.current_post&filter[blogs][id][eq]=4", "filter[comments][post][id]")
+	commentModel.AddPresetPair(presetPair, Patch)
+	rw, req = getHttpPair("PATCH", "/comments/1", h.getModelJSON(&Comment{Body: "Preset post"}))
+
+	mockRepo.On("List", mock.Anything).Once().Return(nil).Run(
+		func(args mock.Arguments) {
+			scope := args.Get(0).(*jsonapi.Scope)
+			scope.Value = []*Blog{{ID: 4}}
+		})
+
+	mockRepo.On("List", mock.Anything).Once().Return(nil).Run(
+		func(args mock.Arguments) {
+			scope := args.Get(0).(*jsonapi.Scope)
+			scope.Value = []*Post{{ID: 3}}
+		})
+
+	mockRepo.On("Patch", mock.Anything).Once().Return(nil).Run(
+		func(args mock.Arguments) {
+			scope := args.Get(0).(*jsonapi.Scope)
+			t.Log(scope.Value)
+		})
+	h.Patch(commentModel).ServeHTTP(rw, req)
+
+}
 
 func TestHandlerDelete(t *testing.T) {
 	h := prepareHandler(defaultLanguages, blogModels...)
