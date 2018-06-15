@@ -8,6 +8,7 @@ import (
 
 func RouteHandler(router *gin.Engine, handler *jsonapisdk.JSONAPIHandler) error {
 	for _, model := range handler.ModelHandlers {
+		// mStruct := handler.Controller.Models.Get(model.ModelType)
 		mStruct := handler.Controller.Models.Get(model.ModelType)
 
 		if mStruct == nil {
@@ -22,18 +23,13 @@ func RouteHandler(router *gin.Engine, handler *jsonapisdk.JSONAPIHandler) error 
 		} else {
 			router.POST(base, gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Create)))
 		}
-		router.POST(base+"/:id/relationship/:field", gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Create)))
-		router.POST(base+"/:id/related/:field", gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Create)))
 
 		// GET
 		if model.Get != nil {
 			router.GET(base+"/:id", gin.WrapF(handler.Get(model)))
-			router.GET(base+"/:id/related/:field", gin.WrapF(handler.GetRelated(model)))
-			router.GET(base+"/:id/relationship/:field", gin.WrapF(handler.GetRelationship(model)))
 		} else {
 			router.GET(base+"/:id", gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Get)))
-			router.GET(base+"/:id/related/:field", gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Get)))
-			router.GET(base+"/:id/relationship/:field", gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Get)))
+
 		}
 
 		// LIST
@@ -49,8 +45,6 @@ func RouteHandler(router *gin.Engine, handler *jsonapisdk.JSONAPIHandler) error 
 		} else {
 			router.PATCH(base+"/:id", gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Patch)))
 		}
-		router.PATCH(base+"/:id/relationship/:field", gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Patch)))
-		router.PATCH(base+"/:id/related/:field", gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Patch)))
 
 		// DELETE
 		if model.Delete != nil {
@@ -58,8 +52,31 @@ func RouteHandler(router *gin.Engine, handler *jsonapisdk.JSONAPIHandler) error 
 		} else {
 			router.DELETE(base+"/:id", gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Delete)))
 		}
-		router.DELETE(base+"/:id/relationship/:field", gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Delete)))
-		router.DELETE(base+"/:id/related/:field", gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Delete)))
+
+		// RELATIONSHIP & RELATED
+		for _, rel := range mStruct.ListRelationshipNames() {
+			// POST
+			router.POST(base+"/:id/"+rel, gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Create)))
+			router.POST(base+"/:id/relationship/"+rel, gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Create)))
+
+			// GETS
+			if model.Get != nil {
+				router.GET(base+"/:id/"+rel, gin.WrapF(handler.GetRelated(model)))
+				router.GET(base+"/:id/relationship/"+rel, gin.WrapF(handler.GetRelationship(model)))
+			} else {
+				router.GET(base+"/:id/"+rel, gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Get)))
+				router.GET(base+"/:id/relationship/"+rel, gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Get)))
+			}
+
+			// PATCH
+			router.PATCH(base+"/:id/"+rel, gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Patch)))
+			router.PATCH(base+"/:id/relationship/"+rel, gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Patch)))
+
+			router.DELETE(base+"/:id/"+rel, gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Delete)))
+			router.DELETE(base+"/:id/relationship/"+rel, gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Delete)))
+
+		}
+
 	}
 	return nil
 }
