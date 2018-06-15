@@ -278,6 +278,23 @@ func (h *JSONAPIHandler) GetPresetValues(
 	return result, true
 }
 
+func (h *JSONAPIHandler) EndpointForbidden(
+	model *ModelHandler,
+	endpoint EndpointType,
+) http.HandlerFunc {
+	return func(rw http.ResponseWriter, req *http.Request) {
+		mStruct := h.Controller.Models.Get(model.ModelType)
+		if mStruct != nil {
+			h.MarshalInternalError(rw)
+			return
+		}
+		errObj := jsonapi.ErrEndpointForbidden.Copy()
+		errObj.Detail = fmt.Sprintf("Server does not allow '%s' operation, at given URI: '%s' for the collection: '%s'.", endpoint.String(), req.URL.Path, mStruct.GetCollectionType())
+		h.MarshalErrors(rw, errObj)
+	}
+
+}
+
 // MarshalScope is a handler helper for marshaling the provided scope.
 func (h *JSONAPIHandler) MarshalScope(
 	scope *jsonapi.Scope,

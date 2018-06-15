@@ -234,6 +234,10 @@ type Endpoint struct {
 	PresetPaginate *jsonapi.Pagination
 }
 
+func (e *Endpoint) String() string {
+	return e.Type.String()
+}
+
 /**
 
 JSONAPIHandler Methods with ModelHandler
