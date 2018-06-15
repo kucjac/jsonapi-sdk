@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/kucjac/jsonapi"
-	"golang.org/x/text/language"
 	"reflect"
 )
 
@@ -275,7 +274,7 @@ func (h *JSONAPIHandler) AddModelsPrecheckPair(
 		return err
 	}
 
-	if err := handler.AddPresetPair(presetPair, endpoint); err != nil {
+	if err := handler.AddPresetPair(precheckPair, endpoint); err != nil {
 		return err
 	}
 	return nil
