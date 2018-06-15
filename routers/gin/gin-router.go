@@ -57,23 +57,23 @@ func RouteHandler(router *gin.Engine, handler *jsonapisdk.JSONAPIHandler) error 
 		for _, rel := range mStruct.ListRelationshipNames() {
 			// POST
 			router.POST(base+"/:id/"+rel, gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Create)))
-			router.POST(base+"/:id/relationship/"+rel, gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Create)))
+			router.POST(base+"/:id/relationships/"+rel, gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Create)))
 
 			// GETS
 			if model.Get != nil {
 				router.GET(base+"/:id/"+rel, gin.WrapF(handler.GetRelated(model)))
-				router.GET(base+"/:id/relationship/"+rel, gin.WrapF(handler.GetRelationship(model)))
+				router.GET(base+"/:id/relationships/"+rel, gin.WrapF(handler.GetRelationship(model)))
 			} else {
 				router.GET(base+"/:id/"+rel, gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Get)))
-				router.GET(base+"/:id/relationship/"+rel, gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Get)))
+				router.GET(base+"/:id/relationships/"+rel, gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Get)))
 			}
 
 			// PATCH
 			router.PATCH(base+"/:id/"+rel, gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Patch)))
-			router.PATCH(base+"/:id/relationship/"+rel, gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Patch)))
+			router.PATCH(base+"/:id/relationships/"+rel, gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Patch)))
 
 			router.DELETE(base+"/:id/"+rel, gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Delete)))
-			router.DELETE(base+"/:id/relationship/"+rel, gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Delete)))
+			router.DELETE(base+"/:id/relationships/"+rel, gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Delete)))
 
 		}
 
