@@ -284,7 +284,8 @@ func (h *JSONAPIHandler) EndpointForbidden(
 ) http.HandlerFunc {
 	return func(rw http.ResponseWriter, req *http.Request) {
 		mStruct := h.Controller.Models.Get(model.ModelType)
-		if mStruct != nil {
+		if mStruct == nil {
+			h.log.Errorf("Invalid model provided. The Controller does not contain provided model type within ModelMap. Model: '%s'", model.ModelType)
 			h.MarshalInternalError(rw)
 			return
 		}
@@ -301,6 +302,7 @@ func (h *JSONAPIHandler) MarshalScope(
 	rw http.ResponseWriter,
 	req *http.Request,
 ) {
+	SetContentType(rw)
 	payload, err := h.Controller.MarshalScope(scope)
 	if err != nil {
 		h.log.Errorf("Error while marshaling the scope: %v.", err)
@@ -505,12 +507,13 @@ func (h *JSONAPIHandler) UnmarshalScope(
 }
 
 func (h *JSONAPIHandler) MarshalInternalError(rw http.ResponseWriter) {
+	SetContentType(rw)
 	rw.WriteHeader(http.StatusInternalServerError)
 	jsonapi.MarshalErrors(rw, jsonapi.ErrInternalError.Copy())
-
 }
 
 func (h *JSONAPIHandler) MarshalErrors(rw http.ResponseWriter, errors ...*jsonapi.ErrorObject) {
+	SetContentType(rw)
 	if len(errors) > 0 {
 		code, err := strconv.Atoi(errors[0].Status)
 		if err != nil {

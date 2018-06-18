@@ -7,6 +7,7 @@ import (
 	"github.com/kucjac/jsonapi"
 	"github.com/kucjac/uni-db/gormconv"
 	"reflect"
+	"runtime/debug"
 )
 
 const (
@@ -72,7 +73,7 @@ func (g *GORMRepository) buildScopeList(jsonScope *jsonapi.Scope,
 	// Filters
 	err = buildFilters(db, mStruct, jsonScope)
 	if err != nil {
-		fmt.Println("Ełłoł")
+		fmt.Println(err.Error())
 		return nil, err
 	}
 
@@ -256,8 +257,20 @@ func addWhere(db *gorm.DB, columnName string, filter *jsonapi.FilterField) error
 				return err
 			}
 			valueMark = "?"
+			if fv.Operator == jsonapi.OpStartsWith {
+				valueMark = valueMark + "%"
+				fmt.Println(fv.Values)
+			} else if fv.Operator == jsonapi.OpContains {
+				valueMark = "%" + valueMark + "%"
+			} else if fv.Operator == jsonapi.OpEndsWith {
+				valueMark = "%" + valueMark
+			}
 		}
 		q := fmt.Sprintf("%s %s %s", columnName, op, valueMark)
+
+		// DEBUG
+		fmt.Println(q)
+
 		*db = *db.Where(q, fv.Values...)
 	}
 	return nil
@@ -302,13 +315,15 @@ func buildFilters(db *gorm.DB, mStruct *gorm.ModelStruct, scope *jsonapi.Scope,
 	}
 
 	for _, relFilter := range scope.RelationshipFilters {
+		fmt.Println(relFilter.GetFieldName())
 		gormField, err = getGormField(relFilter, mStruct, false)
 		if err != nil {
 			return err
 		}
 		// no direct getter for table name
-		relScope := db.NewScope(reflect.New(relFilter.GetRelatedModelType()))
+		relScope := db.NewScope(reflect.New(relFilter.GetRelatedModelType()).Interface())
 		relMStruct := relScope.GetModelStruct()
+
 		relDB := relScope.DB()
 		err = buildRelationFilters(relDB, relMStruct, relFilter.Relationships...)
 		if err != nil {
@@ -525,6 +540,8 @@ func getGormField(
 			}
 		}
 	}
+
+	debug.PrintStack()
 
 	return nil, fmt.Errorf("Invalid filtering field: '%v' not found in the gorm ModelStruct: '%v'", filterField.GetFieldName(), model.ModelType)
 }
