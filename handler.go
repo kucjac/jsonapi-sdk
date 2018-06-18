@@ -192,14 +192,20 @@ func (h *JSONAPIHandler) GetIncluded(
 		}
 
 		if len(missing) > 0 {
+			h.log.Debugf("There are: '%d' missing values in get Included.", len(missing))
 			includedField.Scope.SetIDFilters(missing...)
+			h.log.Debugf("Created ID Filters: '%v'", includedField.Scope.PrimaryFilters)
+
 			if includedField.Scope.UseI18n() {
 				includedField.Scope.SetLanguageFilter(tag.String())
 			}
+
 			includedRepo := h.GetRepositoryByType(includedField.Scope.Struct.GetType())
 
 			// Get NewMultipleValue
 			includedField.Scope.NewValueMany()
+
+			h.log.Debugf("Getting included for collection: '%s'", includedField.Scope.Struct.GetCollectionType())
 			dbErr := includedRepo.List(includedField.Scope)
 			if dbErr != nil {
 				h.manageDBError(rw, dbErr)
@@ -697,6 +703,10 @@ func (h *JSONAPIHandler) manageDBError(rw http.ResponseWriter, dbErr *unidb.Erro
 		h.log.Error(dbErr.Message)
 		h.MarshalInternalError(rw)
 		return
+	}
+
+	if proto, _ := dbErr.GetPrototype(); proto == unidb.ErrUnspecifiedError || proto == unidb.ErrInternalError {
+		h.log.Error(dbErr)
 	}
 
 	h.MarshalErrors(rw, errObj)

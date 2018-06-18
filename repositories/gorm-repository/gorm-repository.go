@@ -73,7 +73,7 @@ func (g *GORMRepository) buildScopeList(jsonScope *jsonapi.Scope,
 	// Filters
 	err = buildFilters(db, mStruct, jsonScope)
 	if err != nil {
-		fmt.Println(err.Error())
+		// fmt.Println(err.Error())
 		return nil, err
 	}
 
@@ -98,14 +98,14 @@ func (g *GORMRepository) getRelationship(
 	field *jsonapi.StructField,
 	scope *jsonapi.Scope,
 	gormScope *gorm.Scope,
-) error {
+) (err error) {
 	var (
 		fieldScope *gorm.Scope
 		gormField  *gorm.StructField
 		fkField    *gorm.Field
-		err        error
 
 		getDBRelationship = func(singleValue, relationValue reflect.Value) error {
+			// fmt.Println("DBRelationship")
 			db := g.db.New()
 			assoc := db.Model(singleValue.Interface()).
 				Select(fieldScope.PrimaryField().DBName).
@@ -126,6 +126,7 @@ func (g *GORMRepository) getRelationship(
 		}
 
 		getBelongsToRelationship = func(singleValue, relationValue reflect.Value) {
+			// fmt.Println("BelongsToRelationship")
 			relationPrimary := relationValue.Elem().FieldByIndex(fieldScope.PrimaryField().Struct.Index)
 			fkValue := singleValue.Elem().FieldByIndex(fkField.Struct.Index)
 			relationPrimary.Set(fkValue)
@@ -133,8 +134,10 @@ func (g *GORMRepository) getRelationship(
 
 		// funcs
 		getRelationshipSingle = func(singleValue reflect.Value) error {
+			// fmt.Println("RelationshipSingle")
 			var isSlice bool
 			relationValue := singleValue.Elem().Field(field.GetFieldIndex())
+
 			t := field.GetFieldType()
 			switch t.Kind() {
 			case reflect.Slice:
@@ -145,26 +148,30 @@ func (g *GORMRepository) getRelationship(
 				if fkField != nil {
 					getBelongsToRelationship(singleValue, relationValue)
 					singleValue.Elem().Field(field.GetFieldIndex()).Set(relationValue)
-
 					return nil
 				}
 			}
 
 			if err := getDBRelationship(singleValue, relationValue); err != nil {
+				// fmt.Printf("GetDBRel Err: %v\n", err)
 				return err
 			}
 			if isSlice {
+
 				singleValue.Elem().Field(field.GetFieldIndex()).Set(relationValue.Elem())
 			} else {
+
 				singleValue.Elem().Field(field.GetFieldIndex()).Set(relationValue)
 			}
 
 			return nil
 		}
 	)
+	// fmt.Printf("Get relationship: '%s' -> '%s'\n", scope.Struct.GetCollectionType(), field.GetFieldName())
 
 	defer func() {
 		if r := recover(); r != nil {
+			debug.PrintStack()
 			switch perr := r.(type) {
 			case *reflect.ValueError:
 				err = fmt.Errorf("Provided invalid value input to the repository. Error: %s", perr.Error())
@@ -211,14 +218,16 @@ func (g *GORMRepository) getRelationship(
 	}
 
 	v := reflect.ValueOf(scope.Value)
-	if scope.IsMany {
+	if v.Kind() == reflect.Slice {
 		// there would be more than one value
 
-		if v.Kind() != reflect.Slice {
-			err = fmt.Errorf("Invalid value type provided. '%v'", v.Type())
-			return err
-		}
+		// if v.Kind() != reflect.Slice {
+		// 	err = fmt.Errorf("Invalid value type provided. '%v'", v.Type())
+		// 	return err
+		// }
+		// fmt.Println("Get multiple relationships Single")
 		for i := 0; i < v.Len(); i++ {
+
 			singleValue := v.Index(i)
 			err = getRelationshipSingle(singleValue)
 			if err != nil {
@@ -226,6 +235,7 @@ func (g *GORMRepository) getRelationship(
 			}
 		}
 	} else {
+		// fmt.Printf("Get Single relationship: '%+v', '%v'", v.Kind())
 		err = getRelationshipSingle(v)
 		if err != nil {
 			return err
@@ -259,7 +269,7 @@ func addWhere(db *gorm.DB, columnName string, filter *jsonapi.FilterField) error
 			valueMark = "?"
 			if fv.Operator == jsonapi.OpStartsWith {
 				valueMark = valueMark + "%"
-				fmt.Println(fv.Values)
+				// fmt.Println(fv.Values)
 			} else if fv.Operator == jsonapi.OpContains {
 				valueMark = "%" + valueMark + "%"
 			} else if fv.Operator == jsonapi.OpEndsWith {
@@ -269,7 +279,7 @@ func addWhere(db *gorm.DB, columnName string, filter *jsonapi.FilterField) error
 		q := fmt.Sprintf("%s %s %s", columnName, op, valueMark)
 
 		// DEBUG
-		fmt.Println(q)
+		// fmt.Println(q)
 
 		*db = *db.Where(q, fv.Values...)
 	}
@@ -280,12 +290,12 @@ func buildFilters(db *gorm.DB, mStruct *gorm.ModelStruct, scope *jsonapi.Scope,
 ) error {
 
 	var (
-		columnName string
-		err        error
-		gormField  *gorm.StructField
+		err       error
+		gormField *gorm.StructField
 	)
 
 	for _, primary := range scope.PrimaryFilters {
+		// fmt.Printf("Primary field: '%s'\n", primary.GetFieldName())
 		gormField, err = getGormField(primary, mStruct, true)
 		if err != nil {
 			return err
@@ -301,12 +311,14 @@ func buildFilters(db *gorm.DB, mStruct *gorm.ModelStruct, scope *jsonapi.Scope,
 			if err != nil {
 				return err
 			}
+			addWhere(db, gormField.DBName, scope.LanguageFilters)
 		} else {
 			// No language filter ?
 		}
 	}
 
 	for _, attrFilter := range scope.AttributeFilters {
+		// fmt.Printf("Attribute field: '%s'\n", attrFilter.GetFieldName())
 		gormField, err = getGormField(attrFilter, mStruct, false)
 		if err != nil {
 			return err
@@ -314,25 +326,6 @@ func buildFilters(db *gorm.DB, mStruct *gorm.ModelStruct, scope *jsonapi.Scope,
 		addWhere(db, gormField.DBName, attrFilter)
 	}
 
-	for _, relFilter := range scope.RelationshipFilters {
-		fmt.Println(relFilter.GetFieldName())
-		gormField, err = getGormField(relFilter, mStruct, false)
-		if err != nil {
-			return err
-		}
-		// no direct getter for table name
-		relScope := db.NewScope(reflect.New(relFilter.GetRelatedModelType()).Interface())
-		relMStruct := relScope.GetModelStruct()
-
-		relDB := relScope.DB()
-		err = buildRelationFilters(relDB, relMStruct, relFilter.Relationships...)
-		if err != nil {
-			return err
-		}
-		expr := relDB.Table(relMStruct.TableName(relDB)).Select(relScope.PrimaryField().DBName).QueryExpr()
-		*db = *db.Where(columnName, expr)
-
-	}
 	return nil
 }
 
@@ -364,13 +357,15 @@ func buildRelationFilters(
 		}
 
 		if filter.GetFieldKind() == jsonapi.Attribute || filter.GetFieldKind() == jsonapi.Primary {
+
 			err = addWhere(db, gormField.DBName, filter)
 			if err != nil {
 				return err
 			}
 		} else {
 			// no direct getter for table name
-			relScope := db.NewScope(reflect.New(filter.GetRelatedModelType()))
+
+			relScope := db.NewScope(reflect.New(filter.GetRelatedModelType()).Interface())
 			relMStruct := relScope.GetModelStruct()
 			relDB := relScope.DB()
 			err = buildRelationFilters(relDB, relMStruct, filter.Relationships...)
@@ -405,7 +400,7 @@ func buildFieldSets(db *gorm.DB, jsonScope *jsonapi.Scope, mStruct *gorm.ModelSt
 	for _, gormField := range mStruct.PrimaryFields {
 		// fmt.Printf("GormFieldIndex: '%v', JsonAPI: '%v'\n", gormField.Struct.Index[0], jsonScope.Struct.GetPrimaryField().GetFieldIndex())
 		if gormField.Struct.Index[0] == jsonScope.Struct.GetPrimaryField().GetFieldIndex() {
-			// fmt.Println("Should be true")
+			fmt.Println("Should be true")
 			fields += gormField.DBName
 			foundPrim = true
 			break
@@ -476,7 +471,7 @@ func buildSorts(db *gorm.DB, jsonScope *jsonapi.Scope, mStruct *gorm.ModelStruct
 			}
 			*db = *db.Order(order)
 		} else {
-			fmt.Println("Rel")
+			// fmt.Println("Rel")
 			// not implemented yet.
 			// it should order the relationship id
 			// and then make
@@ -522,16 +517,20 @@ func getGormField(
 	model *gorm.ModelStruct,
 	isPrimary bool,
 ) (*gorm.StructField, error) {
-
+	debug.PrintStack()
+	// fmt.Printf("Before: '%v' model: '%v' isPrim: '%v'\n", filterField.StructField, model.ModelType, isPrimary)
 	if isPrimary {
 		if len(model.PrimaryFields) == 1 {
 			return model.PrimaryFields[0], nil
-		} else {
+		} else if filterField.StructField.I18n() {
 			for _, prim := range model.PrimaryFields {
 				if prim.Struct.Index[0] == filterField.GetFieldIndex() {
 					return prim, nil
 				}
 			}
+		} else {
+			// fmt.Println("Powinno wejść o tutaj.")
+			return model.PrimaryFields[0], nil
 		}
 	} else {
 		for _, field := range model.StructFields {
@@ -540,8 +539,8 @@ func getGormField(
 			}
 		}
 	}
-
-	debug.PrintStack()
+	// fmt.Printf("filterField: '%+v'\n", filterField.GetReflectStructField())
+	// fmt.Printf("ff ID:'%v'\n", filterField.GetReflectStructField().Index)
 
 	return nil, fmt.Errorf("Invalid filtering field: '%v' not found in the gorm ModelStruct: '%v'", filterField.GetFieldName(), model.ModelType)
 }

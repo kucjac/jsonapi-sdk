@@ -211,7 +211,11 @@ func (h *JSONAPIHandler) GetRelated(root *ModelHandler) http.HandlerFunc {
 
 		// Get root repository
 		rootRepository := h.GetRepositoryByType(root.ModelType)
+		h.log.Debugf("Getting related root for: '%s'", scope.Struct.GetCollectionType())
 		scope.NewValueSingle()
+
+		// Get the root for given id
+		// Select the related field inside
 		dbErr := rootRepository.Get(scope)
 		if dbErr != nil {
 			h.manageDBError(rw, dbErr)
@@ -225,14 +229,22 @@ func (h *JSONAPIHandler) GetRelated(root *ModelHandler) http.HandlerFunc {
 		}
 
 		// if there is any primary filter
+		h.log.Debugf("Getting related scope.")
 		if relatedScope.Value != nil && len(relatedScope.PrimaryFilters) != 0 {
+			h.log.Debugf("Related prim filters: %+v", relatedScope.PrimaryFilters[0])
+			h.log.Debugf("Related attr filters: %+v", relatedScope.AttributeFilters)
+			h.log.Debugf("Related relationship filters: %+v", relatedScope.RelationshipFilters)
+
 			relatedRepository := h.GetRepositoryByType(relatedScope.Struct.GetType())
 			if relatedScope.UseI18n() {
 				relatedScope.SetLanguageFilter(tag.String())
 			}
 			if relatedScope.IsMany {
+				h.log.Debug("The related scope isMany.")
 				dbErr = relatedRepository.List(relatedScope)
 			} else {
+				h.log.Debug("The related scope isSingle.")
+
 				dbErr = relatedRepository.Get(relatedScope)
 			}
 			if dbErr != nil {
