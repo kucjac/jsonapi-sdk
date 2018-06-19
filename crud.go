@@ -357,6 +357,31 @@ func (h *JSONAPIHandler) List(model *ModelHandler) http.HandlerFunc {
 
 		h.HeaderContentLanguage(rw, tag)
 
+		err = h.GetRelationshipFilters(scope, req, rw)
+		if err != nil {
+			if hErr := err.(*HandlerError); hErr != nil {
+				switch hErr.Code {
+				case ErrInternal:
+					h.log.Error(hErr.Error())
+					h.MarshalInternalError(rw)
+					return
+				case ErrAlreadyWritten:
+					return
+				case ErrBadValues, ErrNoModel, ErrValuePreset:
+					h.log.Error(hErr.Error())
+					h.MarshalInternalError(rw)
+					return
+				case ErrNoValues:
+					scope.NewValueMany()
+					h.MarshalScope(scope, rw, req)
+					return
+				}
+			}
+			h.log.Error(err)
+			h.MarshalInternalError(rw)
+			return
+		}
+
 		for _, presetPair := range model.List.Prechecks {
 			values, ok := h.GetPresetValues(presetPair.Scope, presetPair.Filter, rw)
 			if !ok {

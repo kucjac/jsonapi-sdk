@@ -8,7 +8,8 @@ import (
 type ErrorCode int
 
 const (
-	ErrNoValues ErrorCode = iota
+	ErrBadValues ErrorCode = iota
+	ErrNoValues
 	ErrNoModel
 	ErrAlreadyWritten
 	ErrInternal

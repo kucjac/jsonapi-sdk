@@ -39,3 +39,16 @@ type Comment struct {
 	Body string `jsonapi:"attr,body"`
 	Post *Post  `jsonapi:"relation,post,hidden"`
 }
+
+type Pet struct {
+	ID     int      `jsonapi:"primary,pets"`
+	Name   string   `jsonapi:"attr,name"`
+	Humans []*Human `jsonapi:"relation,humans"`
+	Legs   int      `jsonapi:"attr,legs"`
+}
+
+type Human struct {
+	ID   int    `jsonapi:"primary,humans"`
+	Name string `jsonapi:"attr,name"`
+	Pets []*Pet `jsonapi:"relation,pets"`
+}

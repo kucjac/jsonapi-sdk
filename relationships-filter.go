@@ -53,16 +53,28 @@ func (h *JSONAPIHandler) GetRelationshipFilters(scope *jsonapi.Scope, req *http.
 			}
 		}
 
+		var (
+			attrFilter bool
+			primFilter bool
+		)
+
 		// Get relationship scope filters
 		for _, subFieldFilter := range relFilter.Relationships {
 			switch subFieldFilter.GetFieldKind() {
 			case jsonapi.Primary:
 				relationshipScope.PrimaryFilters = append(relationshipScope.PrimaryFilters, subFieldFilter)
+				primFilter = true
 			case jsonapi.Attribute:
 				relationshipScope.AttributeFilters = append(relationshipScope.AttributeFilters, subFieldFilter)
+				attrFilter = true
+
 			default:
-				h.log.Warningf("The subfield of the filter cannot be of relationship filter type. Model: '%s', Path: '%s'", scope.Struct.GetType().Name(), req.URL.Path)
+				h.log.Warningf("The subfield of the filter cannot be of relationship filter type. Model: '%s',", scope.Struct.GetType().Name(), req.URL.Path)
 			}
+		}
+
+		if primFilter && !attrFilter {
+			continue
 		}
 
 		// Get the relationship scope
@@ -74,8 +86,16 @@ func (h *JSONAPIHandler) GetRelationshipFilters(scope *jsonapi.Scope, req *http.
 
 		values, err := relationshipScope.GetPrimaryFieldValues()
 		if err != nil {
-			hErr := newHandlerError(ErrNoValues, err.Error())
+			h.log.Debugf("GetPrimaryFieldValues error within GetRelationship function. %v", err)
+			hErr := newHandlerError(ErrBadValues, err.Error())
 			hErr.Model = relFilter.GetRelatedModelStruct()
+			return hErr
+		}
+
+		if len(values) == 0 {
+			hErr := newHandlerError(ErrNoValues, "")
+			hErr.Model = relFilter.GetRelatedModelStruct()
+			hErr.Scope = relationshipScope
 			return hErr
 		}
 
@@ -86,6 +106,7 @@ func (h *JSONAPIHandler) GetRelationshipFilters(scope *jsonapi.Scope, req *http.
 		relationFilter := &jsonapi.FilterField{StructField: relFilter.StructField, Relationships: []*jsonapi.FilterField{subField}}
 
 		scope.RelationshipFilters[i] = relationFilter
+
 	}
 	return nil
 }

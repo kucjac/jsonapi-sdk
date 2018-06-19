@@ -15,8 +15,8 @@ func TestBuildRelationshipFilter(t *testing.T) {
 	repo, err := prepareGORMRepo(blogModels...)
 
 	assert.NoError(t, err)
-	repo.db.Debug()
-	repo.db.LogMode(true)
+	// repo.db.Debug()
+	// repo.db.LogMode(true)
 
 	assert.NoError(t, settleBlogs(repo.db))
 
