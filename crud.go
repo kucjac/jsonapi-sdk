@@ -84,6 +84,7 @@ func (h *JSONAPIHandler) Create(model *ModelHandler) http.HandlerFunc {
 
 		// if scope.UseI18n()
 		repo := h.GetRepositoryByType(model.ModelType)
+
 		if dbErr := repo.Create(scope); dbErr != nil {
 			h.manageDBError(rw, dbErr)
 			return
