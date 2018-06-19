@@ -42,12 +42,34 @@ func addWhere(db *gorm.DB, columnName string, filter *jsonapi.FilterField) error
 			}
 			valueMark = "?"
 			if fv.Operator == jsonapi.OpStartsWith {
-				valueMark = valueMark + "%"
+				for i, v := range fv.Values {
+					strVal, ok := v.(string)
+					if !ok {
+						err = fmt.Errorf("Invalid value provided for the OpStartsWith filter: %v", reflect.TypeOf(v))
+						return err
+					}
+					fv.Values[i] = strVal + "%"
+				}
+
 				// fmt.Println(fv.Values)
 			} else if fv.Operator == jsonapi.OpContains {
-				valueMark = "%" + valueMark + "%"
+				for i, v := range fv.Values {
+					strVal, ok := v.(string)
+					if !ok {
+						err = fmt.Errorf("Invalid value provided for the OpStartsWith filter: %v", reflect.TypeOf(v))
+						return err
+					}
+					fv.Values[i] = "%" + strVal + "%"
+				}
 			} else if fv.Operator == jsonapi.OpEndsWith {
-				valueMark = "%" + valueMark
+				for i, v := range fv.Values {
+					strVal, ok := v.(string)
+					if !ok {
+						err = fmt.Errorf("Invalid value provided for the OpStartsWith filter: %v", reflect.TypeOf(v))
+						return err
+					}
+					fv.Values[i] = "%" + strVal
+				}
 			}
 		}
 		q := fmt.Sprintf("%s %s %s", columnName, op, valueMark)

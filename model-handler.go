@@ -4,10 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"github.com/kucjac/jsonapi"
+	"net/http"
 	"reflect"
 )
 
 var IErrInvalidModelEndpoint = errors.New("Invalid model endpoint")
+
+type MiddlewareFunc func(next http.HandlerFunc) http.HandlerFunc
 
 // ModelHandler defines how the
 type ModelHandler struct {
@@ -22,6 +25,14 @@ type ModelHandler struct {
 
 	// Repository defines the repository for the provided model
 	Repository Repository
+}
+
+type ModelPresetGetter interface {
+	GetPresetPair(endpoint EndpointType, controller *jsonapi.Controller) *jsonapi.PresetPair
+}
+
+type ModelPrecheckGetter interface {
+	GetPrecheckPair(endpoint EndpointType, controller *jsonapi.Controller) *jsonapi.PresetPair
 }
 
 // NewModelHandler creates new model handler for given model, with provided repository and with
@@ -114,6 +125,31 @@ func (m *ModelHandler) AddOffsetPresetPaginate(
 // an error would be returned.
 func (m *ModelHandler) AddEndpoint(endpoint *Endpoint) error {
 	return m.changeEndpoint(endpoint, false)
+}
+
+// AddMiddlewareFunctions adds the middleware functions for given endpoint
+func (m *ModelHandler) AddMiddlewareFunctions(endpoint EndpointType, middlewares ...MiddlewareFunc) error {
+	var modelEndpoint *Endpoint
+	switch endpoint {
+	case Create:
+		modelEndpoint = m.Create
+	case Get:
+		modelEndpoint = m.Get
+	case List:
+		modelEndpoint = m.List
+	case Patch:
+		modelEndpoint = m.Patch
+	case Delete:
+		modelEndpoint = m.Delete
+	}
+
+	if modelEndpoint == nil {
+		err := fmt.Errorf("Invalid endpoint provided: %v", endpoint)
+		return err
+	}
+
+	modelEndpoint.Middlewares = append(modelEndpoint.Middlewares, middlewares...)
+	return nil
 }
 
 // ReplaceEndpoint replaces the endpoint for the provided model handler.
@@ -217,6 +253,8 @@ func (m *ModelHandler) changeEndpoint(endpoint *Endpoint, replace bool) error {
 
 type Endpoint struct {
 	Type EndpointType
+
+	Middlewares []MiddlewareFunc
 
 	// Precheck
 	Prechecks []*jsonapi.PresetPair
