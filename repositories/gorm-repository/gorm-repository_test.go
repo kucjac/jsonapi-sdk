@@ -182,7 +182,7 @@ func clearDB() error {
 
 var (
 	defaultLanguages = []language.Tag{language.English, language.Polish}
-	blogModels       = []interface{}{&Blog{}, &Post{}, &Comment{}, &User{}}
+	blogModels       = []interface{}{&Blog{}, &Post{}, &Comment{}, &User{}, &House{}}
 )
 
 func getHttpPair(method, target string, body io.Reader,
@@ -222,5 +222,23 @@ func settleUsers(db *gorm.DB) error {
 			return err
 		}
 	}
+	return nil
+}
+
+func settleBlogs(db *gorm.DB) error {
+	var blogs = []*Blog{
+		{ID: 1, Title: "First", CurrentPost: &Post{Lang: "pl", Title: "First Post"}, Author: &User{Name: "Ziutek", Houses: []*House{{ID: 1}}}},
+		{ID: 2, Title: "Second", CurrentPost: &Post{Lang: "en", Title: "Second Post", Comments: []*Comment{{Body: "Crappy post"}}}, Author: &User{Name: "Mietek", Houses: []*House{{ID: 2}}}},
+		{ID: 3, Title: "Third", CurrentPost: &Post{Lang: "pl", Title: "Third Post"}, Author: &User{Name: "Jurek"}},
+		{ID: 4, Title: "Fourth", AuthorID: 3},
+	}
+
+	for _, blog := range blogs {
+		if err := db.Create(blog).Error; err != nil {
+			return err
+		}
+
+	}
+
 	return nil
 }

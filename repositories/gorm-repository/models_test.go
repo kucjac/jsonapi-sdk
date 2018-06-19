@@ -17,7 +17,8 @@ type User struct {
 	ID        int       `jsonapi:"primary,users"`
 	Name      string    `jsonapi:"attr,name"`
 	CreatedAt time.Time `jsonapi:"attr,created_at"`
-	Blogs     []*Blog   `jsonapi:"relation,blogs"`
+	Blogs     []*Blog   `jsonapi:"relation,blogs" gorm:"foreignkey:AuthorID"`
+	Houses    []*House  `jsonapi:"relation,houses" gorm:"many2many:user_houses"`
 }
 
 type Post struct {
@@ -37,4 +38,9 @@ type Comment struct {
 	PostID    int
 	CreatedAt time.Time `jsonapi:"attr,created_at"`
 	UpdatedAt time.Time `jsonapi:"attr,updated_at"`
+}
+
+type House struct {
+	ID    int     `jsonapi:"primary,houses"`
+	Users []*User `jsonapi:"relation,users" gorm:"many2many:user_houses"`
 }

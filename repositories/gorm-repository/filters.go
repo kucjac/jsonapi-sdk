@@ -120,7 +120,7 @@ func buildFilters(db *gorm.DB, mStruct *gorm.ModelStruct, scope *jsonapi.Scope,
 			err = IErrBadRelationshipField
 			return err
 		}
-
+		fmt.Printf("Gormfield: %v", gormField.Relationship)
 		switch gormField.Relationship.Kind {
 		case associationBelongsTo, associationHasOne:
 
@@ -176,6 +176,40 @@ func buildFilters(db *gorm.DB, mStruct *gorm.ModelStruct, scope *jsonapi.Scope,
 			*db = *db.Where(q, expr)
 
 		case associationManyToMany:
+			relScope := db.NewScope(reflect.New(relationFilter.GetRelatedModelType()).Interface())
+
+			relDB := relScope.DB()
+
+			joinTableHandler := gormField.Relationship.JoinTableHandler
+
+			joinTable := joinTableHandler.Table(relDB)
+
+			thisFK := gormField.Relationship.ForeignDBNames[0]
+			// relatedModelFK := gormField.Relationship.AssociationForeignDBNames[0]
+
+			fmt.Printf("this fk: %s\n", thisFK)
+			fmt.Printf("assoc fk: %s\n", gormField.Relationship.AssociationForeignDBNames[0])
+			fmt.Printf("jointable fk: %v\n", joinTableHandler.SourceForeignKeys()[0])
+			fmt.Printf("jointable assocFK: %v\n", joinTableHandler.DestinationForeignKeys()[0])
+			fmt.Printf("jointable: %s\n", joinTable)
+
+			relDB = relDB.Table(gormField.Relationship.JoinTableHandler.Table(relDB)).
+				Select(joinTableHandler.SourceForeignKeys()[0].DBName)
+			// fmt.Printf("%v", relDB)
+
+			err = addWhere(relDB, joinTableHandler.DestinationForeignKeys()[0].DBName, relationFilter.Relationships[0])
+			if err != nil {
+				return err
+			}
+
+			columnName := mStruct.PrimaryFields[0].DBName
+			op := sqlizeOperator(jsonapi.OpIn)
+			valueMark := "(?)"
+			q := fmt.Sprintf("%s %s %s", columnName, op, valueMark)
+
+			*db = *db.Where(q, relDB.QueryExpr())
+
+			// err= buildRelationFilters(relDB, relMStruct, ...)
 		}
 
 	}

@@ -87,5 +87,5 @@ func (h *JSONAPIHandler) GetRelationshipFilters(scope *jsonapi.Scope, req *http.
 
 		scope.RelationshipFilters[i] = relationFilter
 	}
-	return true
+	return nil
 }
