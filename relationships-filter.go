@@ -7,6 +7,8 @@ import (
 )
 
 func (h *JSONAPIHandler) GetRelationshipFilters(scope *jsonapi.Scope, req *http.Request, rw http.ResponseWriter) error {
+
+	h.log.Debug("-------Getting Relationship Filters--------")
 	// every relationship filter is for different field
 	// replace the filter with the preset values of id field
 	// so that the repository should not handle the relationship filter
@@ -36,11 +38,10 @@ func (h *JSONAPIHandler) GetRelationshipFilters(scope *jsonapi.Scope, req *http.
 			return hErr
 		}
 		if relModel.List != nil {
-			for _, precheck := range relModel.List.Prechecks {
-				values, ok := h.GetPresetValues(precheck.Scope, precheck.Filter, rw)
-				if !ok {
-					hErr := newHandlerError(ErrAlreadyWritten, "")
-					return hErr
+			for _, precheck := range relModel.List.PrecheckPairs {
+				values, err := h.GetPresetValues(precheck.Scope, precheck.Filter, rw)
+				if err != nil {
+					return err
 				}
 
 				if err := h.SetPresetFilterValues(precheck.Filter, values...); err != nil {
@@ -79,9 +80,18 @@ func (h *JSONAPIHandler) GetRelationshipFilters(scope *jsonapi.Scope, req *http.
 
 		// Get the relationship scope
 		relationshipScope.NewValueMany()
+
+		if errObj := h.HookBeforeReader(relationshipScope); errObj != nil {
+			return errObj
+		}
+
 		dbErr := h.GetRepositoryByType(relationshipScope.Struct.GetType()).List(relationshipScope)
 		if dbErr != nil {
 			return dbErr
+		}
+
+		if errObj := h.HookAfterReader(relationshipScope); errObj != nil {
+			return errObj
 		}
 
 		values, err := relationshipScope.GetPrimaryFieldValues()

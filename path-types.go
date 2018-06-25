@@ -4,13 +4,25 @@ type EndpointType int
 
 const (
 	UnkownPath EndpointType = iota
+
+	// Create
 	Create
+
+	// Gets
 	Get
+	GetRelated
+	GetRelationship
+
+	// List
 	List
+
+	// Patches
 	Patch
-	PatchAll
+	PatchRelated
+	PatchRelationship
+
+	// Deletes
 	Delete
-	DeleteAll
 )
 
 func (e EndpointType) String() string {

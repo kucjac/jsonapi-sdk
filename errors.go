@@ -14,6 +14,7 @@ const (
 	ErrAlreadyWritten
 	ErrInternal
 	ErrValuePreset
+	ErrWarning
 )
 
 type HandlerError struct {

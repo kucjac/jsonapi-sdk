@@ -194,7 +194,6 @@ func TestHandlerGet(t *testing.T) {
 	mockRepo.On("Get", mock.Anything).Once().Return(nil).Run(
 		func(args mock.Arguments) {
 			arg := args.Get(0).(*jsonapi.Scope)
-			t.Logf("Get filters: '%v'", arg.RelationshipFilters[0].Relationships[0].Values[0].Values)
 			arg.Value = []*Comment{{ID: 1, Body: "Some body"}, {ID: 3, Body: "Other body"}}
 		})
 
@@ -582,7 +581,7 @@ func TestHandlerPatch(t *testing.T) {
 	h.Patch(commentModel).ServeHTTP(rw, req)
 
 	assert.Equal(t, http.StatusNoContent, rw.Result().StatusCode)
-	commentModel.Patch.Prechecks = nil
+	commentModel.Patch.PrecheckPairs = nil
 
 	// Case 3:
 	// Incorrect URL for ID provided - internal

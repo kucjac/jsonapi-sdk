@@ -96,7 +96,12 @@ func buildFilters(db *gorm.DB, mStruct *gorm.ModelStruct, scope *jsonapi.Scope,
 		if err != nil {
 			return err
 		}
-		addWhere(db, gormField.DBName, primary)
+		if !gormField.IsIgnored {
+			if err = addWhere(db, gormField.DBName, primary); err != nil {
+				return err
+			}
+		}
+
 	}
 
 	// if given scope uses i18n check if it contains language filter
@@ -107,7 +112,13 @@ func buildFilters(db *gorm.DB, mStruct *gorm.ModelStruct, scope *jsonapi.Scope,
 			if err != nil {
 				return err
 			}
-			addWhere(db, gormField.DBName, scope.LanguageFilters)
+
+			if !gormField.IsIgnored {
+				if err = addWhere(db, gormField.DBName, scope.LanguageFilters); err != nil {
+					return err
+				}
+			}
+
 		} else {
 			// No language filter ?
 		}
@@ -116,11 +127,14 @@ func buildFilters(db *gorm.DB, mStruct *gorm.ModelStruct, scope *jsonapi.Scope,
 	for _, attrFilter := range scope.AttributeFilters {
 		// fmt.Printf("Attribute field: '%s'\n", attrFilter.GetFieldName())
 		gormField, err = getGormField(attrFilter, mStruct, false)
+
 		if err != nil {
 			return err
 		}
-		if err = addWhere(db, gormField.DBName, attrFilter); err != nil {
-			return err
+		if !gormField.IsIgnored {
+			if err = addWhere(db, gormField.DBName, attrFilter); err != nil {
+				return err
+			}
 		}
 
 	}
@@ -129,6 +143,10 @@ func buildFilters(db *gorm.DB, mStruct *gorm.ModelStruct, scope *jsonapi.Scope,
 		gormField, err = getGormField(relationFilter, mStruct, false)
 		if err != nil {
 			return err
+		}
+
+		if gormField.IsIgnored {
+			continue
 		}
 
 		// The relationshipfilter
@@ -317,6 +335,7 @@ func getGormField(
 			}
 		}
 	}
+
 	// fmt.Printf("filterField: '%+v'\n", filterField.GetReflectStructField())
 	// fmt.Printf("ff ID:'%v'\n", filterField.GetReflectStructField().Index)
 

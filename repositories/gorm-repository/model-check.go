@@ -3,41 +3,52 @@ package gormrepo
 import (
 	"fmt"
 	"github.com/jinzhu/gorm"
-	"github.com/kucjac/jsonapi"
+	"reflect"
 )
 
-func CheckGormModels(db *gorm.DB, c *jsonapi.Controller, models ...interface{}) error {
-	return checkModels(db, c, models...)
+func CheckGormModels(db *gorm.DB, models ...interface{}) error {
+	return checkModels(db, models...)
 }
 
-func checkModels(db *gorm.DB, c *jsonapi.Controller, models ...interface{}) error {
+func checkModels(db *gorm.DB, models ...interface{}) error {
 	for _, model := range models {
-		if err := checkSingleModel(model, db, c); err != nil {
+		if err := checkSingleModel(model, db); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func checkSingleModel(model interface{}, db *gorm.DB, c *jsonapi.Controller) error {
+func checkSingleModel(model interface{}, db *gorm.DB) error {
 	scope := db.NewScope(model)
-	jsonAPIStruct, err := c.GetModelStruct(model)
-	if err != nil {
-		return err
-	}
 	gormStruct := scope.GetModelStruct()
-
-	for _, field := range jsonAPIStruct.GetFields() {
-		if field.IsRelationship() {
-			for _, gormField := range gormStruct.StructFields {
-				if gormField.Struct.Index[0] == field.GetReflectStructField().Index[0] {
-					if gormField.Relationship == nil {
-						err := fmt.Errorf("Invalid relationship for model: %v in field: %v", gormStruct.ModelType, gormField.Name)
-						return err
-					}
-				}
+	for _, field := range gormStruct.StructFields {
+		t := field.Struct.Type
+		switch t.Kind() {
+		case reflect.Ptr:
+			t = t.Elem()
+			if t.Kind() != reflect.Struct {
+				continue
 			}
+
+		case reflect.Slice:
+			t = t.Elem()
+			if t.Kind() == reflect.Ptr {
+				t = t.Elem()
+			}
+			if t.Kind() != reflect.Struct {
+				continue
+			}
+		default:
+			continue
 		}
+
+		if field.Relationship == nil {
+			err := fmt.Errorf("Field: '%s' of type: '%v' does not have relatioship. Model: %v'",
+				field.Name, field.Struct.Type, gormStruct.ModelType.Name())
+			return err
+		}
+
 	}
 	return nil
 

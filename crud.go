@@ -1,9 +1,13 @@
 package jsonapisdk
 
 import (
+	"fmt"
 	"github.com/kucjac/jsonapi"
+	"github.com/kucjac/uni-db"
+	"gopkg.in/go-playground/validator.v9"
 	"net/http"
 	"reflect"
+	"strings"
 )
 
 // Create returns http.HandlerFunc that creates new 'model' entity within it's repository.
@@ -26,41 +30,188 @@ func (h *JSONAPIHandler) Create(model *ModelHandler) http.HandlerFunc {
 			return
 		}
 
-		// Validate struct before pressetting it's value
-		if err := h.Validator.Struct(scope.Value); err != nil {
-			h.HandleValidateError(model, err, rw)
-			return
-		}
+		/**
 
-		// Handle Presets
-		for _, pair := range model.Create.Presets {
-			values, ok := h.GetPresetValues(pair.Scope, pair.Filter, rw)
+		CREATE: LANGUAGE
+
+		*/
+		// if the model is i18n-ready control it's language field value
+		if scope.UseI18n() {
+			lang, ok := h.CheckValueLanguage(scope, rw)
 			if !ok {
 				return
 			}
+			h.HeaderContentLanguage(rw, lang)
+		}
 
-			if err := h.PresetScopeValue(scope, pair.Filter, values...); err != nil {
+		/**
+
+		CREATE: PRESET PAIRS
+
+		*/
+		for _, pair := range model.Create.PresetPairs {
+			presetScope, presetField := pair.GetPair()
+			if pair.Key != nil {
+				if !h.getPresetFilter(pair.Key, presetScope, req, model) {
+					continue
+				}
+			}
+
+			values, err := h.GetPresetValues(presetScope, presetField, rw)
+			if err != nil {
+				if hErr := err.(*HandlerError); hErr != nil {
+					if hErr.Code == ErrNoValues {
+						errObj := jsonapi.ErrInsufficientAccPerm.Copy()
+						h.MarshalErrors(rw, errObj)
+						return
+					}
+					if !h.handleHandlerError(hErr, rw) {
+						return
+					}
+				} else {
+					h.log.Error(err)
+					h.MarshalInternalError(rw)
+					return
+				}
+				continue
+			}
+
+			if err := h.PresetScopeValue(scope, presetField, values...); err != nil {
 				h.log.Errorf("Cannot preset value while creating model: '%s'.'%s'", model.ModelType.Name(), err)
 				h.MarshalInternalError(rw)
 				return
 			}
-
 		}
 
-		// Handle Prechecks
-		for _, pair := range model.Create.Prechecks {
-			values, ok := h.GetPresetValues(pair.Scope, pair.Filter, rw)
-			if !ok {
+		/**
+
+		CREATE: PRESET FILTERS
+
+		*/
+		for _, filter := range model.Create.PresetFilters {
+			value := req.Context().Value(filter.Key)
+			if value != nil {
+				if err := h.SetPresetFilterValues(filter.FilterField, value); err != nil {
+					h.log.Errorf("Cannot preset value for the Create.PresetFilter. Model %v. Field %v. Value: %v", model.ModelType.Name(), filter.StructField.GetFieldName(), value)
+					h.MarshalInternalError(rw)
+					return
+				}
+				if err := h.PresetScopeValue(scope, filter.FilterField, value); err != nil {
+					h.log.Errorf("Cannot preset value for the model: '%s'. FilterField: %v. Error: %v", model.ModelType.Name(), filter.GetFieldName(), err)
+					h.MarshalInternalError(rw)
+					return
+				}
+			}
+		}
+
+		/**
+
+		CREATE: VALIDATE MODEL
+
+		*/
+
+		if err := h.CreateValidator.Struct(scope.Value); err != nil {
+			if _, ok := err.(*validator.InvalidValidationError); ok {
+				errObj := jsonapi.ErrInvalidJSONFieldValue.Copy()
+				h.MarshalErrors(rw, errObj)
 				return
 			}
 
-			if err := h.SetPresetFilterValues(pair.Filter, values...); err != nil {
+			validateErrors, ok := err.(validator.ValidationErrors)
+			if !ok || ok && len(validateErrors) == 0 {
+				h.log.Debugf("Unknown error type while validating. %v", err)
+				h.MarshalErrors(rw, jsonapi.ErrInvalidJSONFieldValue.Copy())
+				return
+			}
+
+			var errs []*jsonapi.ErrorObject
+			for _, verr := range validateErrors {
+				tag := verr.Tag()
+
+				var errObj *jsonapi.ErrorObject
+				if tag == "required" {
+					if verr.Field() == "" {
+						errObj = jsonapi.ErrInsufficientAccPerm.Copy()
+						h.MarshalErrors(rw, errObj)
+						return
+					}
+					errObj = jsonapi.ErrMissingRequiredJSONField.Copy()
+					errObj.Detail = fmt.Sprintf("The field: %s, is required.", verr.Field())
+					errs = append(errs, errObj)
+					continue
+				} else if tag == "isdefault" {
+					if verr.Field() == "" {
+						errObj = jsonapi.ErrInsufficientAccPerm.Copy()
+						h.MarshalErrors(rw, errObj)
+						return
+					}
+					errObj = jsonapi.ErrInvalidJSONFieldValue.Copy()
+					errObj.Detail = fmt.Sprintf("The field: '%s' must be empty.", verr.Field())
+					errs = append(errs, errObj)
+					continue
+				} else if strings.HasPrefix(tag, "len") {
+					if verr.Field() == "" {
+						errObj = jsonapi.ErrInsufficientAccPerm.Copy()
+						h.MarshalErrors(rw, errObj)
+						return
+					}
+					errObj = jsonapi.ErrInvalidJSONFieldValue.Copy()
+					errObj.Detail = fmt.Sprintf("The value of the field: %s is of invalid length.", verr.Field())
+					errs = append(errs, errObj)
+					continue
+				} else {
+					errObj = jsonapi.ErrInvalidJSONFieldValue.Copy()
+					if verr.Field() != "" {
+						errObj.Detail = fmt.Sprintf("Invalid value for the field: '%s'.", verr.Field())
+					}
+					errs = append(errs, errObj)
+					continue
+				}
+			}
+			h.MarshalErrors(rw, errs...)
+			return
+		}
+
+		/**
+
+		CREATE: PRECHECK PAIRS
+
+		*/
+
+		for _, pair := range model.Create.PrecheckPairs {
+			presetScope, presetField := pair.GetPair()
+			if pair.Key != nil {
+				if !h.getPrecheckFilter(pair.Key, presetScope, req, model) {
+					continue
+				}
+			}
+
+			values, err := h.GetPresetValues(presetScope, presetField, rw)
+			if err != nil {
+				if hErr := err.(*HandlerError); hErr != nil {
+					if hErr.Code == ErrNoValues {
+						errObj := jsonapi.ErrInsufficientAccPerm.Copy()
+						h.MarshalErrors(rw, errObj)
+						return
+					}
+					if !h.handleHandlerError(hErr, rw) {
+						return
+					}
+				} else {
+					h.log.Error(err)
+					h.MarshalInternalError(rw)
+					return
+				}
+				continue
+			}
+
+			if err := h.SetPresetFilterValues(presetField, values...); err != nil {
 				h.log.Error("Cannot preset values to the filter value. %s", err)
 				h.MarshalInternalError(rw)
 				return
 			}
 
-			if err := h.CheckPrecheckValues(scope, pair.Filter); err != nil {
+			if err := h.CheckPrecheckValues(scope, presetField); err != nil {
 				h.log.Debugf("Precheck value error: '%s'", err)
 				if err == IErrValueNotValid {
 					errObj := jsonapi.ErrInvalidJSONFieldValue.Copy()
@@ -73,21 +224,92 @@ func (h *JSONAPIHandler) Create(model *ModelHandler) http.HandlerFunc {
 			}
 		}
 
-		// if the model is i18n-ready control it's language field value
-		if scope.UseI18n() {
-			lang, ok := h.CheckValueLanguage(scope, rw)
-			if !ok {
-				return
+		/**
+
+		CREATE: PRECHECK FILTERS
+
+		*/
+
+		for _, filter := range model.Create.PrecheckFilters {
+			value := req.Context().Value(filter.Key)
+			if value != nil {
+				if err := h.SetPresetFilterValues(filter.FilterField, value); err != nil {
+					h.log.Errorf("Cannot preset value for the Create.PresetFilter. Model %v. Field %v. Value: %v", model.ModelType.Name(), filter.StructField.GetFieldName(), value)
+				}
+
+				if err := scope.AddFilterField(filter.FilterField); err != nil {
+					h.log.Error(err)
+					h.MarshalInternalError(rw)
+					return
+				}
 			}
-			h.HeaderContentLanguage(rw, lang)
 		}
 
-		// if scope.UseI18n()
+		/**
+
+		CREATE: RELATIONSHIP FILTERS
+
+		*/
+		err := h.GetRelationshipFilters(scope, req, rw)
+		if err != nil {
+			if hErr := err.(*HandlerError); hErr != nil {
+				if !h.handleHandlerError(hErr, rw) {
+					return
+				}
+			} else {
+				h.log.Error(err)
+				h.MarshalInternalError(rw)
+				return
+			}
+		}
+
+		/**
+
+		CREATE: HOOK BEFORE
+
+		*/
+
+		beforeCreater, ok := scope.Value.(HookBeforeCreator)
+		if ok {
+			if err = beforeCreater.JSONAPIBeforeCreate(scope); err != nil {
+				if errObj, ok := err.(*jsonapi.ErrorObject); ok {
+					h.MarshalErrors(rw, errObj)
+					return
+				}
+				h.MarshalInternalError(rw)
+				return
+			}
+		}
+
 		repo := h.GetRepositoryByType(model.ModelType)
 
+		/**
+
+		CREATE: REPOSITORY CREATE
+
+		*/
 		if dbErr := repo.Create(scope); dbErr != nil {
 			h.manageDBError(rw, dbErr)
 			return
+		}
+
+		/**
+
+		CREATE: HOOK AFTER
+
+		*/
+		afterCreator, ok := scope.Value.(HookAfterCreator)
+		if ok {
+			if err = afterCreator.JSONAPIAfterCreate(scope); err != nil {
+				// the value should not be created?
+				if errObj, ok := err.(*jsonapi.ErrorObject); ok {
+					h.MarshalErrors(rw, errObj)
+					return
+				}
+				h.log.Debugf("Error in HookAfterCreator: %v", err)
+				h.MarshalInternalError(rw)
+				return
+			}
 		}
 
 		rw.WriteHeader(http.StatusCreated)
@@ -104,6 +326,12 @@ func (h *JSONAPIHandler) Get(model *ModelHandler) http.HandlerFunc {
 			return
 		}
 		SetContentType(rw)
+
+		/**
+
+		GET: BUILD SCOPE
+
+		*/
 		scope, errs, err := h.Controller.BuildScopeSingle(req, reflect.New(model.ModelType).Interface())
 		if err != nil {
 			h.log.Error(err)
@@ -115,24 +343,11 @@ func (h *JSONAPIHandler) Get(model *ModelHandler) http.HandlerFunc {
 			return
 		}
 
-		// Preset filters
-		for _, presetPair := range model.Get.Prechecks {
-			values, ok := h.GetPresetValues(presetPair.Scope, presetPair.Filter, rw)
-			if !ok {
-				return
-			}
-			if err := h.SetPresetFilterValues(presetPair.Filter, values...); err != nil {
-				h.log.Errorf("Error while preseting filter for model: '%s'. '%s'", model.ModelType.Name(), err)
-				h.MarshalInternalError(rw)
-				return
-			}
-			if len(presetPair.Filter.Relationships) > 0 {
-				scope.RelationshipFilters = append(scope.RelationshipFilters, presetPair.Filter)
-			} else {
-				scope.PrimaryFilters = append(scope.PrimaryFilters, presetPair.Filter)
-			}
-		}
+		/**
 
+		GET: LANGUAGE
+
+		*/
 		tag, ok := h.GetLanguage(req, rw)
 		if !ok {
 			return
@@ -142,16 +357,129 @@ func (h *JSONAPIHandler) Get(model *ModelHandler) http.HandlerFunc {
 			scope.SetLanguageFilter(tag.String())
 		}
 
-		repo := h.GetRepositoryByType(model.ModelType)
+		/**
 
+		GET: PRECHECK PAIR
+
+		*/
+		for _, presetPair := range model.Get.PrecheckPairs {
+			presetScope, presetField := presetPair.GetPair()
+			if presetPair.Key != nil {
+				if !h.getPrecheckFilter(presetPair.Key, presetScope, req, model) {
+					continue
+				}
+			}
+
+			values, err := h.GetPresetValues(presetScope, presetField, rw)
+			if err != nil {
+				if hErr := err.(*HandlerError); hErr != nil {
+					if hErr.Code == ErrNoValues {
+						errObj := jsonapi.ErrInsufficientAccPerm.Copy()
+						h.MarshalErrors(rw, errObj)
+						return
+					}
+					if !h.handleHandlerError(hErr, rw) {
+						return
+					}
+				} else {
+					h.log.Error(err)
+					h.MarshalInternalError(rw)
+					return
+				}
+				continue
+			}
+			if err := h.SetPresetFilterValues(presetField, values...); err != nil {
+				h.log.Errorf("Error while preseting filter for model: '%s'. '%s'", model.ModelType.Name(), err)
+				h.MarshalInternalError(rw)
+				return
+			}
+
+			h.addPresetFilter(scope, presetField)
+		}
+
+		/**
+
+		GET: PRECHECK FILTERS
+
+		*/
+
+		for _, filter := range model.Get.PrecheckFilters {
+			value := req.Context().Value(filter.Key)
+			if value == nil {
+				continue
+			}
+
+			if err := h.SetPresetFilterValues(filter.FilterField, value); err != nil {
+				h.log.Errorf("Cannot preset filter value for model: %v, filterField: %v. Error: %v", model.ModelType.Name(), filter.GetFieldName(), err)
+				h.MarshalInternalError(rw)
+				return
+			}
+
+			if err := scope.AddFilterField(filter.FilterField); err != nil {
+				h.log.Errorf("Cannot add filter field: %v. Method: GET", err)
+				h.MarshalInternalError(rw)
+				return
+			}
+		}
+
+		/**
+
+		GET: RELATIONSHIP FILTERS
+
+		*/
+		err = h.GetRelationshipFilters(scope, req, rw)
+		if err != nil {
+			if hErr := err.(*HandlerError); hErr != nil {
+				if !h.handleHandlerError(hErr, rw) {
+					return
+				}
+			} else {
+				h.log.Error(err)
+				h.MarshalInternalError(rw)
+				return
+			}
+		}
+
+		repo := h.GetRepositoryByType(model.ModelType)
 		// Set NewSingleValue for the scope
 		scope.NewValueSingle()
+
+		/**
+
+		GET: HOOK BEFORE
+
+		*/
+		if errObj := h.HookBeforeReader(scope); errObj != nil {
+			h.MarshalErrors(rw, errObj)
+			return
+		}
+
+		/**
+
+		GET: REPOSITORY GET
+
+		*/
 		dbErr := repo.Get(scope)
 		if dbErr != nil {
 			h.manageDBError(rw, dbErr)
 			return
 		}
 
+		/**
+
+		GET: HOOK AFTER
+
+		*/
+		if errObj := h.HookAfterReader(scope); errObj != nil {
+			h.MarshalErrors(rw, errObj)
+			return
+		}
+
+		/**
+
+		GET: GET INCLUDED FIELDS
+
+		*/
 		if correct := h.GetIncluded(scope, rw, req, tag); !correct {
 			return
 		}
@@ -176,6 +504,12 @@ func (h *JSONAPIHandler) GetRelated(root *ModelHandler) http.HandlerFunc {
 			return
 		}
 		SetContentType(rw)
+
+		/**
+
+		GET RELATED: BUILD SCOPE
+
+		*/
 		scope, errs, err := h.Controller.BuildScopeRelated(req, reflect.New(root.ModelType).Interface())
 		if err != nil {
 			h.log.Errorf("An internal error occurred while building related scope for model: '%v'. %v", reflect.TypeOf(root), err)
@@ -187,19 +521,13 @@ func (h *JSONAPIHandler) GetRelated(root *ModelHandler) http.HandlerFunc {
 			return
 		}
 
-		for _, presetPair := range root.Get.Prechecks {
-			values, ok := h.GetPresetValues(presetPair.Scope, presetPair.Filter, rw)
-			if !ok {
-				return
-			}
-			if err := h.SetPresetFilterValues(presetPair.Filter, values...); err != nil {
-				h.log.Errorf("Error while preseting filter for model: '%s'. '%s'", root.ModelType.Name(), err)
-				h.MarshalInternalError(rw)
-				return
-			}
+		scope.NewValueSingle()
 
-			h.addPresetFilter(scope, presetPair.Filter)
-		}
+		/**
+
+		GET RELATED: LANGUAGE
+
+		*/
 
 		tag, ok := h.GetLanguage(req, rw)
 		if !ok {
@@ -210,46 +538,163 @@ func (h *JSONAPIHandler) GetRelated(root *ModelHandler) http.HandlerFunc {
 			scope.SetLanguageFilter(tag.String())
 		}
 
+		/**
+
+		GET RELATED: PRECHECK PAIR
+
+		*/
+		for _, presetPair := range root.Get.PrecheckPairs {
+			presetScope, presetField := presetPair.GetPair()
+			if presetPair.Key != nil {
+				if !h.getPrecheckFilter(presetPair.Key, presetScope, req, root) {
+					continue
+				}
+			}
+			values, err := h.GetPresetValues(presetScope, presetField, rw)
+			if err != nil {
+				if hErr := err.(*HandlerError); hErr != nil {
+					if hErr.Code == ErrNoValues {
+						errObj := jsonapi.ErrInsufficientAccPerm.Copy()
+						h.MarshalErrors(rw, errObj)
+						return
+					}
+					if !h.handleHandlerError(hErr, rw) {
+						return
+					}
+				} else {
+					h.log.Error(err)
+					h.MarshalInternalError(rw)
+					return
+				}
+				continue
+			}
+			if err := h.SetPresetFilterValues(presetField, values...); err != nil {
+				h.log.Errorf("Error while preseting filter for model: '%s'. '%s'", root.ModelType.Name(), err)
+				h.MarshalInternalError(rw)
+				return
+			}
+
+			h.addPresetFilter(scope, presetField)
+		}
+
+		/**
+
+		GET RELATED: PRECHECK FILTERS
+
+		*/
+		if !h.AddPrecheckFilters(scope, req, rw, root.GetRelated.PrecheckFilters...) {
+			return
+		}
+
+		/**
+
+		GET RELATED: GET RELATIONSHIP FILTERS
+
+		*/
+
+		err = h.GetRelationshipFilters(scope, req, rw)
+		if err != nil {
+			if hErr := err.(*HandlerError); hErr != nil {
+				if !h.handleHandlerError(hErr, rw) {
+					return
+				}
+			} else {
+				h.log.Error(err)
+				h.MarshalInternalError(rw)
+				return
+			}
+		}
+
 		// Get root repository
 		rootRepository := h.GetRepositoryByType(root.ModelType)
-		h.log.Debugf("Getting related root for: '%s'", scope.Struct.GetCollectionType())
-		scope.NewValueSingle()
-
 		// Get the root for given id
 		// Select the related field inside
+
+		/**
+
+		  GET RELATED: HOOK BEFORE READ
+
+		*/
+
+		if errObj := h.HookBeforeReader(scope); errObj != nil {
+			h.MarshalErrors(rw, errObj)
+			return
+		}
+
+		/**
+
+		GET RELATED: REPOSITORY GET ROOT
+
+		*/
 		dbErr := rootRepository.Get(scope)
 		if dbErr != nil {
 			h.manageDBError(rw, dbErr)
 			return
 		}
 
+		/**
+
+		  GET RELATED: ROOT HOOK AFTER READ
+
+		*/
+		if errObj := h.HookAfterReader(scope); errObj != nil {
+			h.MarshalErrors(rw, errObj)
+			return
+		}
+
+		/**
+
+		GET RELATED: BUILD RELATED SCOPE
+
+		*/
+
 		relatedScope, err := scope.GetRelatedScope()
 		if err != nil {
 			h.log.Errorf("Error while getting Related Scope: %v", err)
 			h.MarshalInternalError(rw)
+			return
 		}
 
 		// if there is any primary filter
-		h.log.Debugf("Getting related scope.")
 		if relatedScope.Value != nil && len(relatedScope.PrimaryFilters) != 0 {
-			h.log.Debugf("Related prim filters: %+v", relatedScope.PrimaryFilters[0])
-			h.log.Debugf("Related attr filters: %+v", relatedScope.AttributeFilters)
-			h.log.Debugf("Related relationship filters: %+v", relatedScope.RelationshipFilters)
 
 			relatedRepository := h.GetRepositoryByType(relatedScope.Struct.GetType())
 			if relatedScope.UseI18n() {
 				relatedScope.SetLanguageFilter(tag.String())
 			}
+
+			/**
+
+			  GET RELATED: HOOK BEFORE READER
+
+			*/
+			if errObj := h.HookBeforeReader(relatedScope); errObj != nil {
+				h.MarshalErrors(rw, errObj)
+				return
+			}
+
+			// SELECT METHOD TO GET
 			if relatedScope.IsMany {
 				h.log.Debug("The related scope isMany.")
 				dbErr = relatedRepository.List(relatedScope)
 			} else {
 				h.log.Debug("The related scope isSingle.")
-
+				h.log.Debugf("The value of related scope: %+v", relatedScope.Value)
+				h.log.Debugf("Fieldset %+v", relatedScope.Fieldset)
 				dbErr = relatedRepository.Get(relatedScope)
 			}
 			if dbErr != nil {
 				h.manageDBError(rw, dbErr)
+				return
+			}
+
+			/**
+
+			HOOK AFTER READER
+
+			*/
+			if errObj := h.HookAfterReader(relatedScope); errObj != nil {
+				h.MarshalErrors(rw, errObj)
 				return
 			}
 		}
@@ -268,6 +713,12 @@ func (h *JSONAPIHandler) GetRelationship(root *ModelHandler) http.HandlerFunc {
 			h.MarshalInternalError(rw)
 			return
 		}
+
+		/**
+
+		GET RELATIONSHIP: BUILD SCOPE
+
+		*/
 		scope, errs, err := h.Controller.BuildScopeRelationship(req, reflect.New(root.ModelType).Interface())
 		if err != nil {
 			h.log.Error(err)
@@ -278,7 +729,13 @@ func (h *JSONAPIHandler) GetRelationship(root *ModelHandler) http.HandlerFunc {
 			h.MarshalErrors(rw, errs...)
 			return
 		}
+		scope.NewValueSingle()
 
+		/**
+
+		  GET RELATIONSHIP: LANGUAGE
+
+		*/
 		tag, ok := h.GetLanguage(req, rw)
 		if !ok {
 			return
@@ -289,36 +746,96 @@ func (h *JSONAPIHandler) GetRelationship(root *ModelHandler) http.HandlerFunc {
 		}
 		h.HeaderContentLanguage(rw, tag)
 
-		// Preset Values
-		for _, presetPair := range root.Get.Prechecks {
-			values, ok := h.GetPresetValues(presetPair.Scope, presetPair.Filter, rw)
-			if !ok {
-				return
-			}
-			if err := h.SetPresetFilterValues(presetPair.Filter, values...); err != nil {
-				h.log.Errorf("Error while preseting filter for model: '%s'. '%s'", root.ModelType.Name(), err)
+		/**
+
+		  GET RELATIONSHIP: PRECHECK PAIR
+
+		*/
+		if !h.AddPrecheckPairFilters(scope, root, root.GetRelationship, req, rw, root.GetRelationship.PrecheckPairs...) {
+			return
+		}
+
+		/**
+
+		GET RELATIONSHIP: PRECHECK FILTERS
+
+		*/
+
+		if !h.AddPrecheckFilters(scope, req, rw, root.List.PrecheckFilters...) {
+			return
+		}
+
+		/**
+
+		GET RELATIONSHIP: GET RELATIONSHIP FILTERS
+
+		*/
+
+		err = h.GetRelationshipFilters(scope, req, rw)
+		if err != nil {
+			if hErr := err.(*HandlerError); hErr != nil {
+				if !h.handleHandlerError(hErr, rw) {
+					return
+				}
+			} else {
+				h.log.Error(err)
 				h.MarshalInternalError(rw)
 				return
 			}
-
-			h.addPresetFilter(scope, presetPair.Filter)
 		}
 
-		// Get value from repository
+		/**
+
+		  GET RELATIONSHIP: ROOT HOOK BEFORE READ
+
+		*/
+
+		if errObj := h.HookBeforeReader(scope); errObj != nil {
+			h.MarshalErrors(rw, errObj)
+			return
+		}
+
+		/**
+
+		  GET RELATIONSHIP: GET ROOT FROM REPOSITORY
+
+		*/
+
 		rootRepository := h.GetRepositoryByType(scope.Struct.GetType())
-		scope.NewValueSingle()
 		dbErr := rootRepository.Get(scope)
 		if dbErr != nil {
 			h.manageDBError(rw, dbErr)
 			return
 		}
 
+		/**
+
+		  GET RELATIONSHIP: ROOT HOOK AFTER READ
+
+		*/
+
+		if errObj := h.HookAfterReader(scope); errObj != nil {
+			h.MarshalErrors(rw, errObj)
+			return
+		}
+
+		/**
+
+		  GET RELATIONSHIP: GET RELATIONSHIP SCOPE
+
+		*/
 		relationshipScope, err := scope.GetRelationshipScope()
 		if err != nil {
 			h.log.Errorf("Error while getting RelationshipScope for model: %v. %v", scope.Struct.GetType(), err)
 			h.MarshalInternalError(rw)
 			return
 		}
+
+		/**
+
+		  GET RELATIONSHIP: MARSHAL SCOPE
+
+		*/
 		h.MarshalScope(relationshipScope, rw, req)
 	}
 }
@@ -336,6 +853,12 @@ func (h *JSONAPIHandler) List(model *ModelHandler) http.HandlerFunc {
 			return
 		}
 		SetContentType(rw)
+
+		/**
+
+		  LIST: BUILD SCOPE
+
+		*/
 		scope, errs, err := h.Controller.BuildScopeList(req, reflect.New(model.ModelType).Interface())
 		if err != nil {
 			h.log.Error(err)
@@ -346,7 +869,13 @@ func (h *JSONAPIHandler) List(model *ModelHandler) http.HandlerFunc {
 			h.MarshalErrors(rw, errs...)
 			return
 		}
+		scope.NewValueMany()
 
+		/**
+
+		  LIST: LANGUAGE
+
+		*/
 		tag, ok := h.GetLanguage(req, rw)
 		if !ok {
 			return
@@ -357,58 +886,123 @@ func (h *JSONAPIHandler) List(model *ModelHandler) http.HandlerFunc {
 
 		h.HeaderContentLanguage(rw, tag)
 
+		/**
+
+		  LIST: PRECHECK PAIRS
+
+		*/
+		if !h.AddPrecheckPairFilters(scope, model, model.List, req, rw, model.List.PrecheckPairs...) {
+			return
+		}
+
+		/**
+
+		  LIST: PRECHECK FILTERS
+
+		*/
+
+		if !h.AddPrecheckFilters(scope, req, rw, model.List.PrecheckFilters...) {
+			return
+		}
+		/**
+
+		  LIST: GET RELATIONSHIP FILTERS
+
+		*/
 		err = h.GetRelationshipFilters(scope, req, rw)
 		if err != nil {
 			if hErr := err.(*HandlerError); hErr != nil {
-				switch hErr.Code {
-				case ErrInternal:
-					h.log.Error(hErr.Error())
-					h.MarshalInternalError(rw)
-					return
-				case ErrAlreadyWritten:
-					return
-				case ErrBadValues, ErrNoModel, ErrValuePreset:
-					h.log.Error(hErr.Error())
-					h.MarshalInternalError(rw)
-					return
-				case ErrNoValues:
+				if hErr.Code == ErrNoValues {
 					scope.NewValueMany()
 					h.MarshalScope(scope, rw, req)
 					return
 				}
-			}
-			h.log.Error(err)
-			h.MarshalInternalError(rw)
-			return
-		}
-
-		for _, presetPair := range model.List.Prechecks {
-			values, ok := h.GetPresetValues(presetPair.Scope, presetPair.Filter, rw)
-			if !ok {
-				return
-			}
-			if err := h.SetPresetFilterValues(presetPair.Filter, values...); err != nil {
-				h.log.Errorf("Error while preseting filter for model: '%s'. '%s'", model.ModelType.Name(), err)
+				if !h.handleHandlerError(hErr, rw) {
+					return
+				}
+			} else {
+				h.log.Error(err)
 				h.MarshalInternalError(rw)
 				return
 			}
-
-			h.addPresetFilter(scope, presetPair.Filter)
 		}
 
 		repo := h.GetRepositoryByType(model.ModelType)
 
-		scope.NewValueMany()
+		/**
+
+		  LIST: INCLUDE COUNT
+
+		  Include count into meta data
+		*/
+		if model.List.CountList {
+			scope.CountList = true
+		}
+
+		/**
+
+		  LIST: DEFAULT PAGINATION
+
+		*/
+		if model.List.PresetPaginate != nil && scope.Pagination == nil {
+			scope.Pagination = model.List.PresetPaginate
+		}
+
+		/**
+
+		  LIST: DEFAULT SORT
+
+		*/
+		if len(model.List.PresetSort) != 0 {
+			scope.Sorts = append(model.List.PresetSort, scope.Sorts...)
+		}
+
+		/**
+
+		  LIST: HOOK BEFORE READER
+
+		*/
+
+		if errObj := h.HookBeforeReader(scope); errObj != nil {
+			h.MarshalErrors(rw, errObj)
+			return
+		}
+
+		/**
+
+		  LIST: LIST FROM REPOSITORY
+
+		*/
 		dbErr := repo.List(scope)
 		if dbErr != nil {
 			h.manageDBError(rw, dbErr)
 			return
 		}
 
+		/**
+
+		  LIST: HOOK AFTER READ
+
+		*/
+		if errObj := h.HookAfterReader(scope); errObj != nil {
+			h.MarshalErrors(rw, errObj)
+			return
+		}
+
+		/**
+
+		  LIST: GET INCLUDED
+
+		*/
 		if correct := h.GetIncluded(scope, rw, req, tag); !correct {
 			return
 		}
 
+		/**
+
+		  LIST: MARSHAL SCOPE
+
+		*/
 		h.MarshalScope(scope, rw, req)
 		return
 	}
@@ -428,18 +1022,35 @@ func (h *JSONAPIHandler) Patch(model *ModelHandler) http.HandlerFunc {
 		}
 		// UnmarshalScope from the request body.
 		SetContentType(rw)
+
+		/**
+
+		  PATCH: UNMARSHAL SCOPE
+
+		*/
 		scope := h.UnmarshalScope(model.ModelType, rw, req)
 		if scope == nil {
 			return
 		}
 
-		// Set the ID for given model's scope
+		/**
+
+		  PATCH: GET ID FILTER
+
+		  Set the ID for given model's scope
+		*/
+
 		err := h.Controller.GetAndSetIDFilter(req, scope)
 		if err != nil {
 			h.errSetIDFilter(scope, err, rw, req)
 			return
 		}
 
+		/**
+
+		  PATCH: LANGAUGE
+
+		*/
 		if scope.UseI18n() {
 			tag, ok := h.CheckValueLanguage(scope, rw)
 			if !ok {
@@ -448,44 +1059,169 @@ func (h *JSONAPIHandler) Patch(model *ModelHandler) http.HandlerFunc {
 			h.HeaderContentLanguage(rw, tag)
 		}
 
-		for _, presetPair := range model.Patch.Presets {
-			values, ok := h.GetPresetValues(presetPair.Scope, presetPair.Filter, rw)
-			if !ok {
-				return
+		/**
+
+		  PATCH: PRESET PAIRS
+
+		*/
+		for _, presetPair := range model.Patch.PresetPairs {
+			presetScope, presetField := presetPair.GetPair()
+			if presetPair.Key != nil {
+				if !h.getPresetFilter(presetPair.Key, presetScope, req, model) {
+					continue
+				}
+			}
+			values, err := h.GetPresetValues(presetScope, presetField, rw)
+			if err != nil {
+				if hErr := err.(*HandlerError); hErr != nil {
+					if hErr.Code == ErrNoValues {
+						errObj := jsonapi.ErrInsufficientAccPerm.Copy()
+						h.MarshalErrors(rw, errObj)
+						return
+					}
+					if !h.handleHandlerError(hErr, rw) {
+						return
+					}
+				} else {
+					h.log.Error(err)
+					h.MarshalInternalError(rw)
+					return
+				}
+				continue
 			}
 
-			if err := h.PresetScopeValue(scope, presetPair.Filter, values...); err != nil {
+			if err := h.PresetScopeValue(scope, presetField, values...); err != nil {
 				h.log.Errorf("Cannot preset value while creating model: '%s'.'%s'", model.ModelType.Name(), err)
 				h.MarshalInternalError(rw)
 				return
 			}
 		}
 
-		// Precheck filters
-		for _, presetPair := range model.Patch.Prechecks {
-			values, ok := h.GetPresetValues(presetPair.Scope, presetPair.Filter, rw)
-			if !ok {
-				return
-			}
-			if err := h.SetPresetFilterValues(presetPair.Filter, values...); err != nil {
-				h.log.Errorf("Error while preseting filter for model: '%s'. '%s'", model.ModelType.Name(), err)
+		/**
+
+		  PATCH: PRESET FILTERS
+
+		*/
+
+		if !h.SetPresetFilters(scope, model, req, rw, model.Patch.PresetFilters...) {
+			return
+		}
+
+		/**
+
+		  PATCH: PRECHECK PAIRS
+
+		*/
+		if !h.AddPrecheckPairFilters(scope, model, model.Patch, req, rw, model.Patch.PrecheckPairs...) {
+			return
+		}
+
+		/**
+
+		  PATCH: PRECHECK FILTERS
+
+		*/
+
+		if !h.AddPrecheckFilters(scope, req, rw, model.Patch.PrecheckFilters...) {
+			return
+		}
+
+		err = h.GetRelationshipFilters(scope, req, rw)
+		if err != nil {
+			if hErr := err.(*HandlerError); hErr != nil {
+				if !h.handleHandlerError(hErr, rw) {
+					return
+				}
+			} else {
+				h.log.Error(err)
 				h.MarshalInternalError(rw)
 				return
 			}
-			h.addPresetFilter(scope, presetPair.Filter)
 		}
 
 		// Get the Repository for given model
 		repo := h.GetRepositoryByType(model.ModelType)
 
+		/**
+
+		  PATCH: GET MODIFIED RESULT
+
+		*/
+		if model.Patch.GetModifiedResult {
+			scope.GetModifiedResult = true
+		}
+
+		/**
+
+		  PATCH: HOOK BEFORE PATCH
+
+		*/
+		if beforePatcher, ok := scope.Value.(HookBeforePatcher); ok {
+			if err = beforePatcher.JSONAPIBeforePatch(scope); err != nil {
+				if errObj, ok := err.(*jsonapi.ErrorObject); ok {
+					h.MarshalErrors(rw, errObj)
+					return
+				}
+				h.log.Errorf("Error in HookBeforePatch for model: %v. Error: %v", model.ModelType.Name(), err)
+				h.MarshalInternalError(rw)
+				return
+			}
+		}
+
+		/**
+
+		  PATCH: REPOSITORY PATCH
+
+		*/
 		// Use Patch Method on given model's Repository for given scope.
 		if dbErr := repo.Patch(scope); dbErr != nil {
+			if dbErr.Compare(unidb.ErrNoResult) && model.Patch.HasPrechecks() {
+				errObj := jsonapi.ErrInsufficientAccPerm.Copy()
+				errObj.Detail = "Given object is not available for this account or it does not exists."
+				h.MarshalErrors(rw, errObj)
+				return
+			}
 			h.manageDBError(rw, dbErr)
 			return
 		}
-		rw.WriteHeader(http.StatusNoContent)
+
+		/**
+
+		  PATCH: HOOK AFTER PATCH
+
+		*/
+		if afterPatcher, ok := scope.Value.(HookAfterPatcher); ok {
+			if err = afterPatcher.JSONAPIAfterPatch(scope); err != nil {
+				if errObj, ok := err.(*jsonapi.ErrorObject); ok {
+					h.MarshalErrors(rw, errObj)
+					return
+				}
+				h.log.Errorf("Error in HookAfterPatcher for model: %v. Error: %v", model.ModelType.Name(), err)
+				h.MarshalInternalError(rw)
+				return
+			}
+		}
+
+		/**
+
+		  PATCH: MARSHAL RESULT
+
+		*/
+		if scope.GetModifiedResult {
+			h.MarshalScope(scope, rw, req)
+		} else {
+			rw.WriteHeader(http.StatusNoContent)
+		}
 		return
 	}
+}
+
+func (h *JSONAPIHandler) PatchRelated(model *ModelHandler) http.HandlerFunc {
+	return h.EndpointForbidden(model, PatchRelated)
+}
+
+func (h *JSONAPIHandler) PatchRelationship(model *ModelHandler) http.HandlerFunc {
+	return h.EndpointForbidden(model, PatchRelationship)
 }
 
 func (h *JSONAPIHandler) Delete(model *ModelHandler) http.HandlerFunc {
@@ -494,6 +1230,12 @@ func (h *JSONAPIHandler) Delete(model *ModelHandler) http.HandlerFunc {
 			h.MarshalInternalError(rw)
 			return
 		}
+
+		/**
+
+		  DELETE: BUILD SCOPE
+
+		*/
 		// Create a scope for given delete handler
 		scope, err := h.Controller.NewScope(reflect.New(model.ModelType).Interface())
 		if err != nil {
@@ -502,6 +1244,11 @@ func (h *JSONAPIHandler) Delete(model *ModelHandler) http.HandlerFunc {
 			return
 		}
 
+		/**
+
+		  DELETE: GET ID FILTER
+
+		*/
 		// Set the ID for given model's scope
 		errs, err := h.Controller.GetSetCheckIDFilter(req, scope)
 		if err != nil {
@@ -514,29 +1261,106 @@ func (h *JSONAPIHandler) Delete(model *ModelHandler) http.HandlerFunc {
 			return
 		}
 
-		// Preset filters
-		for _, presetPair := range model.Delete.Prechecks {
-			values, ok := h.GetPresetValues(presetPair.Scope, presetPair.Filter, rw)
-			if !ok {
-				return
-			}
-			if err := h.SetPresetFilterValues(presetPair.Filter, values...); err != nil {
-				h.log.Errorf("Error while preseting filter for model: '%s'. '%s'", model.ModelType.Name(), err)
+		/**
+
+		  DELETE: LANGUAGE
+
+		*/
+		tag, ok := h.GetLanguage(req, rw)
+		if !ok {
+			return
+		}
+		if scope.UseI18n() {
+			scope.SetLanguageFilter(tag.String())
+		}
+
+		/**
+
+		  DELETE: PRECHECK PAIRS
+
+		*/
+
+		if !h.AddPrecheckPairFilters(scope, model, model.Delete, req, rw, model.Delete.PrecheckPairs...) {
+			return
+		}
+
+		/**
+
+		  DELETE: PRECHECK FILTERS
+
+		*/
+
+		if !h.AddPrecheckFilters(scope, req, rw, model.Delete.PrecheckFilters...) {
+			return
+		}
+		/**
+
+		  DELETE: GET RELATIONSHIP FILTERS
+
+		*/
+		err = h.GetRelationshipFilters(scope, req, rw)
+		if err != nil {
+			if hErr := err.(*HandlerError); hErr != nil {
+				if !h.handleHandlerError(hErr, rw) {
+					return
+				}
+			} else {
+				h.log.Error(err)
 				h.MarshalInternalError(rw)
 				return
 			}
-			if len(presetPair.Filter.Relationships) > 0 {
-				scope.RelationshipFilters = append(scope.RelationshipFilters, presetPair.Filter)
-			} else {
-				scope.PrimaryFilters = append(scope.PrimaryFilters, presetPair.Filter)
+		}
+
+		/**
+
+		  DELETE: HOOK BEFORE DELETE
+
+		*/
+		scope.NewValueSingle()
+		if deleteBefore, ok := scope.Value.(HookBeforeDeleter); ok {
+			if err = deleteBefore.JSONAPIBeforeDelete(scope); err != nil {
+				if errObj, ok := err.(*jsonapi.ErrorObject); ok {
+					h.MarshalErrors(rw, errObj)
+					return
+				}
+				h.log.Errorf("Unknown error in Hook Before Delete. Path: %v. Error: %v", req.URL.Path, err)
+				h.MarshalInternalError(rw)
+				return
 			}
 		}
 
-		repo := h.GetRepositoryByType(model.ModelType)
+		/**
 
+		  DELETE: REPOSITORY DELETE
+
+		*/
+		repo := h.GetRepositoryByType(model.ModelType)
 		if dbErr := repo.Delete(scope); dbErr != nil {
+			if dbErr.Compare(unidb.ErrNoResult) && model.Delete.HasPrechecks() {
+				errObj := jsonapi.ErrInsufficientAccPerm.Copy()
+				errObj.Detail = "Given object is not available for this account or it does not exists."
+				h.MarshalErrors(rw, errObj)
+				return
+			}
 			h.manageDBError(rw, dbErr)
 			return
+		}
+
+		/**
+
+		  DELETE: HOOK AFTER DELETE
+
+		*/
+		if afterDeleter, ok := scope.Value.(HookAfterDeleter); ok {
+			if err = afterDeleter.JSONAPIAfterDelete(scope); err != nil {
+				if errObj, ok := err.(*jsonapi.ErrorObject); ok {
+					h.MarshalErrors(rw, errObj)
+					return
+				}
+				h.log.Errorf("Error of unknown type during Hook After Delete. Path: %v. Error %v", req.URL.Path, err)
+				h.MarshalInternalError(rw)
+				return
+			}
 		}
 
 		rw.WriteHeader(http.StatusNoContent)

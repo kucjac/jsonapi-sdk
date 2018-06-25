@@ -108,6 +108,8 @@ func (g *GORMRepository) getRelationship(
 		gormField  *gorm.StructField
 		fkField    *gorm.Field
 
+		errNilPrimary = errors.New("nil value")
+
 		getDBRelationship = func(singleValue, relationValue reflect.Value) error {
 			// fmt.Println("DBRelationship")
 			db := g.db.New()
@@ -129,11 +131,24 @@ func (g *GORMRepository) getRelationship(
 			return nil
 		}
 
-		getBelongsToRelationship = func(singleValue, relationValue reflect.Value) {
-			// fmt.Println("BelongsToRelationship")
+		getBelongsToRelationship = func(singleValue, relationValue reflect.Value) error {
+			fmt.Printf("BelongsToRelationship for field: %v", fkField.Struct.Name)
 			relationPrimary := relationValue.Elem().FieldByIndex(fieldScope.PrimaryField().Struct.Index)
 			fkValue := singleValue.Elem().FieldByIndex(fkField.Struct.Index)
+
+			if fkValue.Kind() == reflect.String {
+				strFK := fkValue.Interface().(string)
+				if strFK == "" {
+					fmt.Printf("Trying to get primary key for the belongs to relationship. It's empty. Field: %v\n", fkField.Struct.Name)
+					return errNilPrimary
+				}
+			} else if !fkValue.IsValid() {
+				fmt.Printf("Field is not valid. %s", fkField.Struct.Name)
+				return errNilPrimary
+			}
+
 			relationPrimary.Set(fkValue)
+			return nil
 		}
 
 		// funcs
@@ -150,7 +165,10 @@ func (g *GORMRepository) getRelationship(
 			case reflect.Ptr:
 				relationValue = reflect.New(t.Elem())
 				if fkField != nil {
-					getBelongsToRelationship(singleValue, relationValue)
+					err = getBelongsToRelationship(singleValue, relationValue)
+					if err != nil {
+						return err
+					}
 					singleValue.Elem().Field(field.GetFieldIndex()).Set(relationValue)
 					return nil
 				}
@@ -230,18 +248,33 @@ func (g *GORMRepository) getRelationship(
 		// 	return err
 		// }
 		// fmt.Println("Get multiple relationships Single")
-		for i := 0; i < v.Len(); i++ {
+		length := v.Len()
+		for i := 0; i < length; i++ {
 
 			singleValue := v.Index(i)
 			err = getRelationshipSingle(singleValue)
 			if err != nil {
-				return err
+				if err == errNilPrimary {
+					if i == length-1 {
+						v = v.Slice(0, i)
+					} else {
+						v = reflect.AppendSlice(v.Slice(0, i), v.Slice(i+1, length))
+						i--
+						length--
+					}
+				} else {
+					return err
+				}
 			}
+
 		}
 	} else {
 		// fmt.Printf("Get Single relationship: '%+v', '%v'", v.Kind())
 		err = getRelationshipSingle(v)
 		if err != nil {
+			if err == errNilPrimary {
+				return nil
+			}
 			return err
 		}
 
@@ -271,7 +304,9 @@ func buildFieldSets(db *gorm.DB, jsonScope *jsonapi.Scope, mStruct *gorm.ModelSt
 	for _, gormField := range mStruct.PrimaryFields {
 		// fmt.Printf("GormFieldIndex: '%v', JsonAPI: '%v'\n", gormField.Struct.Index[0], jsonScope.Struct.GetPrimaryField().GetFieldIndex())
 		if gormField.Struct.Index[0] == jsonScope.Struct.GetPrimaryField().GetFieldIndex() {
-			fmt.Println("Should be true")
+			if gormField.IsIgnored {
+				continue
+			}
 			fields += gormField.DBName
 			foundPrim = true
 			break
@@ -288,18 +323,26 @@ func buildFieldSets(db *gorm.DB, jsonScope *jsonapi.Scope, mStruct *gorm.ModelSt
 			index := field.GetFieldIndex()
 			for _, gField := range mStruct.StructFields {
 				if gField.Struct.Index[0] == index {
+
+					if gField.IsIgnored {
+
+						continue
+					}
 					// this is the field
 					fields += ", " + gField.DBName
 				}
 			}
 		} else {
 			if field.GetFieldKind() == jsonapi.RelationshipSingle {
-
 				for _, gField := range mStruct.StructFields {
 					if gField.Struct.Index[0] == field.GetFieldIndex() {
+						if gField.IsIgnored {
+							continue
+						}
 						rel := gField.Relationship
 
 						if rel != nil && rel.Kind == "belongs_to" {
+
 							if rel.ForeignDBNames[0] != "id" {
 								fields += ", " + rel.ForeignDBNames[0]
 							}

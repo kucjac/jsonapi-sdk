@@ -45,7 +45,8 @@ type JSONAPIHandler struct {
 	LanguageMatcher language.Matcher
 
 	// Validators validate given
-	Validator *validator.Validate
+	CreateValidator *validator.Validate
+	PatchValidator  *validator.Validate
 
 	// ModelHandlers
 	ModelHandlers map[reflect.Type]*ModelHandler
@@ -61,12 +62,20 @@ func NewHandler(
 		DBErrMgr = NewDBErrorMgr()
 	}
 	h := &JSONAPIHandler{
-		Controller:    c,
-		log:           log,
-		DBErrMgr:      DBErrMgr,
-		ModelHandlers: make(map[reflect.Type]*ModelHandler),
-		Validator:     validator.New(),
+		Controller:      c,
+		log:             log,
+		DBErrMgr:        DBErrMgr,
+		ModelHandlers:   make(map[reflect.Type]*ModelHandler),
+		CreateValidator: validator.New(),
+		PatchValidator:  validator.New(),
 	}
+
+	h.CreateValidator.SetTagName("create")
+	h.PatchValidator.SetTagName("patch")
+
+	// Register jsonapi name func
+	h.CreateValidator.RegisterTagNameFunc(JSONAPITagFunc)
+	h.PatchValidator.RegisterTagNameFunc(JSONAPITagFunc)
 
 	return h
 }
@@ -176,7 +185,9 @@ func (h *JSONAPIHandler) GetIncluded(
 
 	// h.log.Debug(scope.GetCollectionScope().IncludedValues)
 
+	// Iterate over included fields
 	for scope.NextIncludedField() {
+		// Get next included field
 		includedField, err := scope.CurrentIncludedField()
 		if err != nil {
 			h.log.Error(err)
@@ -184,6 +195,7 @@ func (h *JSONAPIHandler) GetIncluded(
 			return
 		}
 
+		// Get the primaries from the scope.collection primaries
 		missing, err := includedField.GetMissingPrimaries()
 		if err != nil {
 			h.log.Errorf("While getting missing objects for: '%v'over included field an error occured: %v", includedField.GetFieldName(), err)
@@ -192,9 +204,9 @@ func (h *JSONAPIHandler) GetIncluded(
 		}
 
 		if len(missing) > 0 {
-			h.log.Debugf("There are: '%d' missing values in get Included.", len(missing))
+			// h.log.Debugf("There are: '%d' missing values in get Included.", len(missing))
 			includedField.Scope.SetIDFilters(missing...)
-			h.log.Debugf("Created ID Filters: '%v'", includedField.Scope.PrimaryFilters)
+			// h.log.Debugf("Created ID Filters: '%v'", includedField.Scope.PrimaryFilters)
 
 			if includedField.Scope.UseI18n() {
 				includedField.Scope.SetLanguageFilter(tag.String())
@@ -205,10 +217,19 @@ func (h *JSONAPIHandler) GetIncluded(
 			// Get NewMultipleValue
 			includedField.Scope.NewValueMany()
 
-			h.log.Debugf("Getting included for collection: '%s'", includedField.Scope.Struct.GetCollectionType())
+			if errObj := h.HookBeforeReader(includedField.Scope); errObj != nil {
+				h.MarshalErrors(rw, errObj)
+				return
+			}
+
 			dbErr := includedRepo.List(includedField.Scope)
 			if dbErr != nil {
 				h.manageDBError(rw, dbErr)
+				return
+			}
+
+			if errObj := h.HookAfterReader(includedField.Scope); errObj != nil {
+				h.MarshalErrors(rw, errObj)
 				return
 			}
 
@@ -219,69 +240,6 @@ func (h *JSONAPIHandler) GetIncluded(
 	}
 	scope.ResetIncludedField()
 	return true
-}
-
-// GetPresetValues gets the values from the presetScope
-func (h *JSONAPIHandler) GetPresetValues(
-	presetScope *jsonapi.Scope,
-	filter *jsonapi.FilterField,
-	rw http.ResponseWriter,
-) (values []interface{}, ok bool) {
-
-	repo := h.GetRepositoryByType(presetScope.Struct.GetType())
-	presetScope.NewValueMany()
-
-	dbErr := repo.List(presetScope)
-	if dbErr != nil {
-		h.manageDBError(rw, dbErr)
-		ok = false
-		return
-	}
-
-	scopeVal := reflect.ValueOf(presetScope.Value)
-
-	if scopeVal.Len() == 0 {
-		err := jsonapi.ErrResourceNotFound.Copy()
-		/**
-
-		Error type ?
-
-		*/
-		err.Detail = "Provided resource does not exists."
-		ok = false
-		h.MarshalErrors(rw, err)
-		return
-	}
-
-	if err := presetScope.SetCollectionValues(); err != nil {
-		h.log.Errorf("The value provided ")
-		ok = false
-		h.MarshalInternalError(rw)
-		return
-	}
-
-	for presetScope.NextIncludedField() {
-		field, err := presetScope.CurrentIncludedField()
-		if err != nil {
-			h.MarshalInternalError(rw)
-			ok = false
-			return
-		}
-
-		values, ok = h.GetPresetValues(field.Scope, filter, rw)
-		if !ok {
-			return
-		}
-		return
-	}
-
-	var result []interface{}
-	primIndex := presetScope.Struct.GetPrimaryField().GetFieldIndex()
-	for i := 0; i < scopeVal.Len(); i++ {
-		result = append(result, scopeVal.Index(i).Elem().Field(primIndex).Interface())
-	}
-
-	return result, true
 }
 
 func (h *JSONAPIHandler) EndpointForbidden(
@@ -311,8 +269,8 @@ func (h *JSONAPIHandler) MarshalScope(
 	SetContentType(rw)
 	payload, err := h.Controller.MarshalScope(scope)
 	if err != nil {
-		h.log.Errorf("Error while marshaling the scope: %v.", err)
-		h.errMarshalScope(err, scope.Struct.GetType(), rw, req)
+		h.log.Errorf("Error while marshaling scope for model: '%v', for path: '%s', and method: '%s', Error: %s", scope.Struct.GetType(), req.URL.Path, req.Method, err)
+		h.errMarshalScope(rw, req)
 		return
 	}
 
@@ -324,129 +282,6 @@ func (h *JSONAPIHandler) MarshalScope(
 
 }
 
-// PresetScopeValue presets provided values for given scope.
-// The fieldFilter points where the value should be set within given scope.
-// The scope value should not be nil
-func (h *JSONAPIHandler) PresetScopeValue(
-	scope *jsonapi.Scope,
-	fieldFilter *jsonapi.FilterField,
-	values ...interface{},
-) (err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			h.log.Errorf("Panic within preset scope value. %v. %v", r, string(debug.Stack()))
-			err = IErrPresetInvalidScope
-		}
-	}()
-
-	if scope.Value == nil {
-		return IErrScopeNoValue
-	}
-
-	if len(values) == 0 {
-		return IErrPresetNoValues
-	}
-
-	v := reflect.ValueOf(scope.Value)
-	if v.Kind() == reflect.Ptr {
-		v = v.Elem()
-		if v.Kind() != reflect.Struct {
-			return IErrPresetInvalidScope
-		}
-	}
-
-	fIndex := fieldFilter.GetFieldIndex()
-	field := v.Field(fIndex)
-
-	if len(fieldFilter.Relationships) != 0 {
-		switch fieldFilter.GetFieldKind() {
-
-		case jsonapi.RelationshipSingle:
-			relIndex := fieldFilter.Relationships[0].GetFieldIndex()
-			if field.IsNil() {
-				field.Set(reflect.New(field.Type().Elem()))
-			}
-			relatedField := field.Elem().Field(relIndex)
-			switch relatedField.Kind() {
-			case reflect.Slice:
-				refValues := reflect.ValueOf(values)
-				relatedField = reflect.AppendSlice(relatedField, refValues)
-			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-				relatedField.Set(reflect.ValueOf(values[0]))
-			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-				relatedField.Set(reflect.ValueOf(values[0]))
-			case reflect.Float32, reflect.Float64:
-				relatedField.Set(reflect.ValueOf(values[0]))
-			case reflect.String:
-				relatedField.Set(reflect.ValueOf(values[0]))
-			case reflect.Struct:
-				relatedField.Set(reflect.ValueOf(values[0]))
-			case reflect.Ptr:
-				relatedField.Set(reflect.ValueOf(values[0]))
-			}
-
-			if len(values) > 1 {
-				h.log.Errorf("Provided values length is greatern than 1 but the field is not of slice type. Presetting only the first value. Field: '%s'.", field.String())
-			}
-
-		case jsonapi.RelationshipMultiple:
-			fieldElemType := fieldFilter.GetRelatedModelType()
-			relatedIndex := fieldFilter.Relationships[0].GetFieldIndex()
-			for _, value := range values {
-				refValue := reflect.ValueOf(value)
-				fieldElem := reflect.New(fieldElemType)
-				relatedField := fieldElem.Field(relatedIndex)
-				switch relatedField.Kind() {
-				case reflect.Slice:
-					relatedField = reflect.Append(relatedField, refValue)
-				case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-					relatedField.Set(refValue)
-				case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-					relatedField.Set(refValue)
-				case reflect.Float32, reflect.Float64:
-					relatedField.Set(refValue)
-				case reflect.String:
-					relatedField.Set(refValue)
-				case reflect.Struct:
-					relatedField.Set(refValue)
-				case reflect.Ptr:
-					relatedField.Set(refValue)
-				}
-
-				field = reflect.Append(field, relatedField)
-			}
-		default:
-			h.log.Error("Relationship filter is of invalid type. Model: '%s'. Field: '%s'", scope.Struct.GetType().Name(), field.String())
-			return IErrPresetInvalidScope
-		}
-
-	} else {
-
-		switch field.Kind() {
-		case reflect.Slice:
-			refValues := reflect.ValueOf(values)
-			field = reflect.AppendSlice(field, refValues)
-		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-			field.Set(reflect.ValueOf(values[0]))
-		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-			field.Set(reflect.ValueOf(values[0]))
-		case reflect.Float32, reflect.Float64:
-			field.Set(reflect.ValueOf(values[0]))
-		case reflect.String:
-			field.Set(reflect.ValueOf(values[0]))
-		case reflect.Struct:
-			field.Set(reflect.ValueOf(values[0]))
-		case reflect.Ptr:
-			field.Set(reflect.ValueOf(values[0]))
-		}
-
-		if len(values) > 1 {
-			h.log.Warningf("Provided values length is greatern than 1 but the field is not of slice type. Presetting only the first value. Field: '%s'.", field.String())
-		}
-	}
-	return nil
-}
-
 // SetLanguages sets the default langauges for given handler.
 // Creates the language matcher for given languages.
 func (h *JSONAPIHandler) SetLanguages(languages ...language.Tag) {
@@ -456,26 +291,6 @@ func (h *JSONAPIHandler) SetLanguages(languages ...language.Tag) {
 
 func (h *JSONAPIHandler) SetDefaultRepo(Repositoriesitory Repository) {
 	h.DefaultRepository = Repositoriesitory
-}
-
-// SetPresetValues sets provided values for given filterfield.
-// If the filterfield does not contain values or subfield values the function returns error.
-func (h *JSONAPIHandler) SetPresetFilterValues(
-	filter *jsonapi.FilterField,
-	values ...interface{},
-) error {
-	if len(filter.Values) != 0 {
-		fv := filter.Values[0]
-		(*fv).Values = values
-		return nil
-	} else if len(filter.Relationships) != 0 {
-		if len(filter.Relationships[0].Values) != 0 {
-			fv := filter.Relationships[0].Values[0]
-			(*fv).Values = values
-			return nil
-		}
-	}
-	return errors.New("Invalid preset filter.")
 }
 
 func (h *JSONAPIHandler) UnmarshalScope(
@@ -684,6 +499,22 @@ func checkContains(fieldValue reflect.Value, values ...interface{}) (ok bool) {
 	return
 }
 
+func (h *JSONAPIHandler) addPresetFilterToPresetScope(
+	presetScope *jsonapi.Scope,
+	presetFilter *jsonapi.FilterField,
+) bool {
+	switch presetFilter.GetFieldKind() {
+	case jsonapi.Primary:
+		presetScope.PrimaryFilters = append(presetScope.PrimaryFilters, presetFilter)
+	case jsonapi.Attribute:
+		presetScope.AttributeFilters = append(presetScope.AttributeFilters, presetFilter)
+	default:
+		h.log.Warningf("PrecheckFilter cannot be of reltionship field filter type.")
+		return false
+	}
+	return true
+}
+
 func (h *JSONAPIHandler) getModelRepositoryByType(modelType reflect.Type) (repo Repository) {
 	model, ok := h.ModelHandlers[modelType]
 	if !ok {
@@ -695,6 +526,31 @@ func (h *JSONAPIHandler) getModelRepositoryByType(modelType reflect.Type) (repo 
 		}
 	}
 	return repo
+}
+
+func (h *JSONAPIHandler) handleHandlerError(hErr *HandlerError, rw http.ResponseWriter) bool {
+	switch hErr.Code {
+	case ErrInternal:
+		h.log.Error(hErr.Error())
+		h.log.Error(string(debug.Stack()))
+		h.MarshalInternalError(rw)
+		return false
+	case ErrAlreadyWritten:
+		return false
+	case ErrBadValues, ErrNoModel, ErrValuePreset:
+		h.log.Error(hErr.Error())
+		h.MarshalInternalError(rw)
+		return false
+	case ErrNoValues:
+		errObj := jsonapi.ErrResourceNotFound.Copy()
+		h.MarshalErrors(rw, errObj)
+		return false
+	case ErrWarning:
+		h.log.Warning(hErr)
+		return true
+	}
+	return true
+
 }
 
 func (h *JSONAPIHandler) manageDBError(rw http.ResponseWriter, dbErr *unidb.Error) {
@@ -736,11 +592,8 @@ func (h *JSONAPIHandler) errMarshalPayload(
 }
 
 func (h *JSONAPIHandler) errMarshalScope(
-	err error,
-	model reflect.Type,
 	rw http.ResponseWriter,
 	req *http.Request,
 ) {
-	h.log.Errorf("Error while marshaling scope for model: '%v', for path: '%s', and method: '%s', Error: %s", model, req.URL.Path, req.Method, err)
 	h.MarshalInternalError(rw)
 }

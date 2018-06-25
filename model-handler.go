@@ -10,7 +10,7 @@ import (
 
 var IErrInvalidModelEndpoint = errors.New("Invalid model endpoint")
 
-type MiddlewareFunc func(next http.HandlerFunc) http.HandlerFunc
+type MiddlewareFunc func(next http.Handler) http.Handler
 
 // ModelHandler defines how the
 type ModelHandler struct {
@@ -18,9 +18,16 @@ type ModelHandler struct {
 
 	// Endpoints contains preset information about the provided model.
 	Create *Endpoint
-	Get    *Endpoint
-	List   *Endpoint
-	Patch  *Endpoint
+
+	Get             *Endpoint
+	GetRelated      *Endpoint
+	GetRelationship *Endpoint
+	List            *Endpoint
+
+	Patch             *Endpoint
+	PatchRelated      *Endpoint
+	PatchRelationship *Endpoint
+
 	Delete *Endpoint
 
 	// Repository defines the repository for the provided model
@@ -42,21 +49,13 @@ type ModelPrecheckGetter interface {
 func NewModelHandler(
 	model interface{},
 	repository Repository,
-	endpoints []EndpointType,
+	endpoints ...EndpointType,
 ) (m *ModelHandler, err error) {
 	m = new(ModelHandler)
 
-	t := reflect.TypeOf(model)
-	if t.Kind() == reflect.Ptr {
-		t = t.Elem()
-	}
-
-	if t.Kind() != reflect.Struct {
-		err = errors.New("Invalid model provided. Model must be struct or a pointer to struct.")
+	if err = m.newModelType(model); err != nil {
 		return
 	}
-
-	m.ModelType = t
 	m.Repository = repository
 	for _, endpoint := range endpoints {
 		switch endpoint {
@@ -173,9 +172,9 @@ func (m *ModelHandler) addPresetPair(
 			return nilEndpoint("Create")
 		}
 		if check {
-			m.Create.Prechecks = append(m.Create.Prechecks, presetPair)
+			m.Create.PrecheckPairs = append(m.Create.PrecheckPairs, presetPair)
 		} else {
-			m.Create.Presets = append(m.Create.Presets, presetPair)
+			m.Create.PresetPairs = append(m.Create.PresetPairs, presetPair)
 		}
 
 	case Get:
@@ -183,9 +182,9 @@ func (m *ModelHandler) addPresetPair(
 			return nilEndpoint("Get")
 		}
 		if check {
-			m.Get.Prechecks = append(m.Get.Prechecks, presetPair)
+			m.Get.PrecheckPairs = append(m.Get.PrecheckPairs, presetPair)
 		} else {
-			m.Get.Presets = append(m.Get.Presets, presetPair)
+			m.Get.PresetPairs = append(m.Get.PresetPairs, presetPair)
 		}
 	case List:
 		if m.List == nil {
@@ -193,9 +192,9 @@ func (m *ModelHandler) addPresetPair(
 		}
 
 		if check {
-			m.List.Prechecks = append(m.List.Prechecks, presetPair)
+			m.List.PrecheckPairs = append(m.List.PrecheckPairs, presetPair)
 		} else {
-			m.List.Presets = append(m.List.Presets, presetPair)
+			m.List.PresetPairs = append(m.List.PresetPairs, presetPair)
 		}
 
 	case Patch:
@@ -204,9 +203,9 @@ func (m *ModelHandler) addPresetPair(
 		}
 
 		if check {
-			m.Patch.Prechecks = append(m.Patch.Prechecks, presetPair)
+			m.Patch.PrecheckPairs = append(m.Patch.PrecheckPairs, presetPair)
 		} else {
-			m.Patch.Presets = append(m.Patch.Presets, presetPair)
+			m.Patch.PresetPairs = append(m.Patch.PresetPairs, presetPair)
 		}
 
 	case Delete:
@@ -215,9 +214,9 @@ func (m *ModelHandler) addPresetPair(
 		}
 
 		if check {
-			m.Delete.Prechecks = append(m.Delete.Prechecks, presetPair)
+			m.Delete.PrecheckPairs = append(m.Delete.PrecheckPairs, presetPair)
 		} else {
-			m.Delete.Presets = append(m.Delete.Presets, presetPair)
+			m.Delete.PresetPairs = append(m.Delete.PresetPairs, presetPair)
 		}
 
 	default:
@@ -227,53 +226,48 @@ func (m *ModelHandler) addPresetPair(
 }
 
 func (m *ModelHandler) changeEndpoint(endpoint *Endpoint, replace bool) error {
-	var modelEndpoint *Endpoint
+	if endpoint == nil {
+		return fmt.Errorf("Provided nil endpoint for model: %s.", m.ModelType.Name())
+	}
+
 	switch endpoint.Type {
 	case Create:
-		modelEndpoint = m.Create
+		m.Create = endpoint
 	case Get:
-		modelEndpoint = m.Get
+		m.Get = endpoint
+	case GetRelated:
+		m.GetRelated = endpoint
+	case GetRelationship:
+		m.GetRelationship = endpoint
 	case List:
-		modelEndpoint = m.List
+		m.List = endpoint
 	case Patch:
-		modelEndpoint = m.Patch
+		m.Patch = endpoint
+	case PatchRelated:
+		m.PatchRelated = endpoint
+	case PatchRelationship:
+		m.PatchRelationship = endpoint
 	case Delete:
-		modelEndpoint = m.Delete
+		m.Delete = endpoint
 	default:
 		return IErrInvalidModelEndpoint
 	}
 
-	if modelEndpoint != nil {
-		return fmt.Errorf("Endpoint: '%s' already set for model: '%s'.", modelEndpoint.Type, m.ModelType.String())
-	}
-
-	*modelEndpoint = *endpoint
 	return nil
 }
 
-type Endpoint struct {
-	Type EndpointType
+func (m *ModelHandler) newModelType(model interface{}) (err error) {
+	t := reflect.TypeOf(model)
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
 
-	Middlewares []MiddlewareFunc
-
-	// Precheck
-	Prechecks []*jsonapi.PresetPair
-
-	// Preset
-	Presets []*jsonapi.PresetPair
-
-	// Preset default Filters
-	PresetFilters []*jsonapi.FilterField
-
-	// Preset default sorting
-	PresetSort []*jsonapi.SortField
-
-	// Preset default limit offset
-	PresetPaginate *jsonapi.Pagination
-}
-
-func (e *Endpoint) String() string {
-	return e.Type.String()
+	if t.Kind() != reflect.Struct {
+		err = errors.New("Invalid model provided. Model must be struct or a pointer to struct.")
+		return
+	}
+	m.ModelType = t
+	return
 }
 
 /**

@@ -3,6 +3,7 @@ package ginjsonapi
 import (
 	"fmt"
 	"github.com/gin-gonic/gin"
+	"github.com/gwatts/gin-adapter"
 	"github.com/kucjac/jsonapi-sdk"
 	"net/http"
 )
@@ -21,18 +22,27 @@ func RouteHandler(router *gin.Engine, handler *jsonapisdk.JSONAPIHandler) error 
 		getMiddlewares := func(middlewares ...jsonapisdk.MiddlewareFunc) gin.HandlersChain {
 			ginMiddlewares := []gin.HandlerFunc{}
 			for _, middleware := range middlewares {
-				ginMiddlewares = append(ginMiddlewares, wrap(middleware))
+				ginMiddlewares = append(ginMiddlewares, adapter.Wrap(middleware))
 			}
 			return ginMiddlewares
 		}
 
-		var handlers gin.HandlersChain
-		var handlerFunc gin.HandlerFunc
+		var (
+			handlers       gin.HandlersChain
+			handlerFunc    http.HandlerFunc
+			ginHandlerFunc gin.HandlerFunc
+		)
+
 		// CREATE
 		if model.Create != nil {
-			handlerFunc = gin.WrapF(handler.Create(model))
+			if model.Create.CustomHandlerFunc != nil {
+				handlerFunc = model.Create.CustomHandlerFunc
+			} else {
+				handlerFunc = handler.Create(model)
+			}
+			ginHandlerFunc = gin.WrapF(handlerFunc)
 			handlers = getMiddlewares(model.Create.Middlewares...)
-			handlers = append(handlers, handlerFunc)
+			handlers = append(handlers, ginHandlerFunc)
 
 			router.POST(base, handlers...)
 
@@ -42,9 +52,14 @@ func RouteHandler(router *gin.Engine, handler *jsonapisdk.JSONAPIHandler) error 
 
 		// GET
 		if model.Get != nil {
-			handlerFunc = gin.WrapF(handler.Get(model))
+			if model.Get.CustomHandlerFunc != nil {
+				handlerFunc = model.Get.CustomHandlerFunc
+			} else {
+				handlerFunc = handler.Get(model)
+			}
+			ginHandlerFunc = gin.WrapF(handlerFunc)
 			handlers = getMiddlewares(model.Get.Middlewares...)
-			handlers = append(handlers, handlerFunc)
+			handlers = append(handlers, ginHandlerFunc)
 			router.GET(base+"/:id", handlers...)
 		} else {
 			router.GET(base+"/:id", gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Get)))
@@ -53,9 +68,14 @@ func RouteHandler(router *gin.Engine, handler *jsonapisdk.JSONAPIHandler) error 
 
 		// LIST
 		if model.List != nil {
-			handlerFunc = gin.WrapF(handler.List(model))
+			if model.List.CustomHandlerFunc != nil {
+				handlerFunc = model.List.CustomHandlerFunc
+			} else {
+				handlerFunc = handler.List(model)
+			}
+			ginHandlerFunc = gin.WrapF(handlerFunc)
 			handlers = getMiddlewares(model.List.Middlewares...)
-			handlers = append(handlers, handlerFunc)
+			handlers = append(handlers, ginHandlerFunc)
 			router.GET(base, handlers...)
 		} else {
 			router.GET(base, gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.List)))
@@ -63,9 +83,15 @@ func RouteHandler(router *gin.Engine, handler *jsonapisdk.JSONAPIHandler) error 
 
 		// PATCH
 		if model.Patch != nil {
-			handlerFunc = gin.WrapF(handler.Patch(model))
+			if model.Patch.CustomHandlerFunc != nil {
+				handlerFunc = model.Patch.CustomHandlerFunc
+			} else {
+				handlerFunc = handler.Patch(model)
+			}
+
+			ginHandlerFunc = gin.WrapF(handlerFunc)
 			handlers = getMiddlewares(model.Patch.Middlewares...)
-			handlers = append(handlers, handlerFunc)
+			handlers = append(handlers, ginHandlerFunc)
 			router.PATCH(base+"/:id", handlers...)
 		} else {
 			router.PATCH(base+"/:id", gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Patch)))
@@ -73,65 +99,78 @@ func RouteHandler(router *gin.Engine, handler *jsonapisdk.JSONAPIHandler) error 
 
 		// DELETE
 		if model.Delete != nil {
-			handlerFunc = gin.WrapF(handler.Delete(model))
+			if model.Delete.CustomHandlerFunc != nil {
+				handlerFunc = model.Delete.CustomHandlerFunc
+			} else {
+				handlerFunc = handler.Delete(model)
+			}
+			ginHandlerFunc = gin.WrapF(handlerFunc)
 			handlers = getMiddlewares(model.Delete.Middlewares...)
-			handlers = append(handlers, handlerFunc)
+			handlers = append(handlers, ginHandlerFunc)
 			router.DELETE(base+"/:id", handlers...)
 		} else {
 			router.DELETE(base+"/:id", gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Delete)))
 		}
 
-		// RELATIONSHIP & RELATED
 		for _, rel := range mStruct.ListRelationshipNames() {
-			// POST
-			router.POST(base+"/:id/"+rel, gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Create)))
-			router.POST(base+"/:id/relationships/"+rel, gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Create)))
-
-			// GETS
-			if model.Get != nil {
-				handlerFunc = gin.WrapF(handler.GetRelated(model))
-				handlers = getMiddlewares(model.Get.Middlewares...)
-				handlers = append(handlers, handlerFunc)
+			if model.GetRelated != nil {
+				if model.GetRelated.CustomHandlerFunc != nil {
+					handlerFunc = model.GetRelated.CustomHandlerFunc
+				} else {
+					handlerFunc = handler.GetRelated(model)
+				}
+				ginHandlerFunc = gin.WrapF(handlerFunc)
+				handlers = getMiddlewares(model.GetRelated.Middlewares...)
+				handlers = append(handlers, ginHandlerFunc)
 				router.GET(base+"/:id/"+rel, handlers...)
+			} else {
+				router.GET(base+"/:id/"+rel, gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.GetRelated)))
+			}
 
-				handlerFunc = gin.WrapF(handler.GetRelationship(model))
-				handlers = getMiddlewares(model.Get.Middlewares...)
-				handlers = append(handlers, handlerFunc)
+			if model.GetRelationship != nil {
+				if model.GetRelationship.CustomHandlerFunc != nil {
+					handlerFunc = model.GetRelationship.CustomHandlerFunc
+				} else {
+					handlerFunc = handler.GetRelationship(model)
+				}
+				ginHandlerFunc = gin.WrapF(handlerFunc)
+				handlers = getMiddlewares(model.GetRelationship.Middlewares...)
+				handlers = append(handlers, ginHandlerFunc)
 				router.GET(base+"/:id/relationships/"+rel, handlers...)
 			} else {
-				router.GET(base+"/:id/"+rel, gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Get)))
-				router.GET(base+"/:id/relationships/"+rel, gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Get)))
+				router.GET(base+"/:id/relationships"+rel,
+					gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.GetRelationship)))
 			}
 
-			// PATCH
-			router.PATCH(base+"/:id/"+rel, gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Patch)))
-			router.PATCH(base+"/:id/relationships/"+rel, gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Patch)))
+			if model.PatchRelated != nil {
+				if model.PatchRelated.CustomHandlerFunc != nil {
+					handlerFunc = model.PatchRelated.CustomHandlerFunc
+				} else {
+					handlerFunc = handler.PatchRelated(model)
+				}
+				ginHandlerFunc = gin.WrapF(handlerFunc)
+				handlers = getMiddlewares(model.PatchRelated.Middlewares...)
+				handlers = append(handlers, ginHandlerFunc)
+				router.PATCH(base+"/:id/"+rel, handlers...)
+			} else {
+				router.PATCH(base+"/:id/"+rel, gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.PatchRelated)))
+			}
 
-			router.DELETE(base+"/:id/"+rel, gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Delete)))
-			router.DELETE(base+"/:id/relationships/"+rel, gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.Delete)))
+			if model.PatchRelationship != nil {
+				if model.PatchRelationship.CustomHandlerFunc != nil {
+					handlerFunc = model.PatchRelationship.CustomHandlerFunc
+				} else {
+					handlerFunc = handler.PatchRelationship(model)
+				}
+				ginHandlerFunc = gin.WrapF(handlerFunc)
+				handlers = getMiddlewares(model.PatchRelationship.Middlewares...)
+				handlers = append(handlers, ginHandlerFunc)
+				router.PATCH(base+"/id/relationships"+rel, handlers...)
+			} else {
+				router.PATCH(base+"/:id/relationships/"+rel, gin.WrapF(handler.EndpointForbidden(model, jsonapisdk.PatchRelationship)))
+			}
 
 		}
-
 	}
 	return nil
-}
-
-func wrap(f func(h http.Handler) http.Handler) gin.HandlerFunc {
-	next, adapter := new()
-	return adapter(f(next))
-}
-
-func new() (http.Handler, func(h http.Handler) gin.HandlerFunc) {
-	nextHandler := new(connectHandler)
-	makeGinHandler := func(h http.Handler) gin.HandlerFunc {
-		return func(c *gin.Context) {
-			state := &middlewareCtx{ctx: c}
-			ctx := context.WithValue(c.Request.Context(), nextHandler, state)
-			h.ServeHTTP(c.Writer, c.Request.WithContext(ctx))
-			if !state.childCalled {
-				c.Abort()
-			}
-		}
-	}
-	return nextHandler, makeGinHandler
 }
