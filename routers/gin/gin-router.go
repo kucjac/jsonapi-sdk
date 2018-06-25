@@ -38,7 +38,7 @@ func RouteHandler(router *gin.Engine, handler *jsonapisdk.JSONAPIHandler) error 
 			if model.Create.CustomHandlerFunc != nil {
 				handlerFunc = model.Create.CustomHandlerFunc
 			} else {
-				handlerFunc = handler.Create(model)
+				handlerFunc = handler.Create(model, model.Create)
 			}
 			ginHandlerFunc = gin.WrapF(handlerFunc)
 			handlers = getMiddlewares(model.Create.Middlewares...)
@@ -55,7 +55,7 @@ func RouteHandler(router *gin.Engine, handler *jsonapisdk.JSONAPIHandler) error 
 			if model.Get.CustomHandlerFunc != nil {
 				handlerFunc = model.Get.CustomHandlerFunc
 			} else {
-				handlerFunc = handler.Get(model)
+				handlerFunc = handler.Get(model, model.Get)
 			}
 			ginHandlerFunc = gin.WrapF(handlerFunc)
 			handlers = getMiddlewares(model.Get.Middlewares...)
@@ -71,7 +71,7 @@ func RouteHandler(router *gin.Engine, handler *jsonapisdk.JSONAPIHandler) error 
 			if model.List.CustomHandlerFunc != nil {
 				handlerFunc = model.List.CustomHandlerFunc
 			} else {
-				handlerFunc = handler.List(model)
+				handlerFunc = handler.List(model, model.List)
 			}
 			ginHandlerFunc = gin.WrapF(handlerFunc)
 			handlers = getMiddlewares(model.List.Middlewares...)
@@ -86,7 +86,7 @@ func RouteHandler(router *gin.Engine, handler *jsonapisdk.JSONAPIHandler) error 
 			if model.Patch.CustomHandlerFunc != nil {
 				handlerFunc = model.Patch.CustomHandlerFunc
 			} else {
-				handlerFunc = handler.Patch(model)
+				handlerFunc = handler.Patch(model, model.Patch)
 			}
 
 			ginHandlerFunc = gin.WrapF(handlerFunc)
@@ -102,7 +102,7 @@ func RouteHandler(router *gin.Engine, handler *jsonapisdk.JSONAPIHandler) error 
 			if model.Delete.CustomHandlerFunc != nil {
 				handlerFunc = model.Delete.CustomHandlerFunc
 			} else {
-				handlerFunc = handler.Delete(model)
+				handlerFunc = handler.Delete(model, model.Delete)
 			}
 			ginHandlerFunc = gin.WrapF(handlerFunc)
 			handlers = getMiddlewares(model.Delete.Middlewares...)
@@ -117,7 +117,7 @@ func RouteHandler(router *gin.Engine, handler *jsonapisdk.JSONAPIHandler) error 
 				if model.GetRelated.CustomHandlerFunc != nil {
 					handlerFunc = model.GetRelated.CustomHandlerFunc
 				} else {
-					handlerFunc = handler.GetRelated(model)
+					handlerFunc = handler.GetRelated(model, model.GetRelated)
 				}
 				ginHandlerFunc = gin.WrapF(handlerFunc)
 				handlers = getMiddlewares(model.GetRelated.Middlewares...)
@@ -131,7 +131,7 @@ func RouteHandler(router *gin.Engine, handler *jsonapisdk.JSONAPIHandler) error 
 				if model.GetRelationship.CustomHandlerFunc != nil {
 					handlerFunc = model.GetRelationship.CustomHandlerFunc
 				} else {
-					handlerFunc = handler.GetRelationship(model)
+					handlerFunc = handler.GetRelationship(model, model.GetRelationship)
 				}
 				ginHandlerFunc = gin.WrapF(handlerFunc)
 				handlers = getMiddlewares(model.GetRelationship.Middlewares...)
@@ -146,7 +146,7 @@ func RouteHandler(router *gin.Engine, handler *jsonapisdk.JSONAPIHandler) error 
 				if model.PatchRelated.CustomHandlerFunc != nil {
 					handlerFunc = model.PatchRelated.CustomHandlerFunc
 				} else {
-					handlerFunc = handler.PatchRelated(model)
+					handlerFunc = handler.PatchRelated(model, model.PatchRelated)
 				}
 				ginHandlerFunc = gin.WrapF(handlerFunc)
 				handlers = getMiddlewares(model.PatchRelated.Middlewares...)
@@ -160,7 +160,7 @@ func RouteHandler(router *gin.Engine, handler *jsonapisdk.JSONAPIHandler) error 
 				if model.PatchRelationship.CustomHandlerFunc != nil {
 					handlerFunc = model.PatchRelationship.CustomHandlerFunc
 				} else {
-					handlerFunc = handler.PatchRelationship(model)
+					handlerFunc = handler.PatchRelationship(model, model.PatchRelationship)
 				}
 				ginHandlerFunc = gin.WrapF(handlerFunc)
 				handlers = getMiddlewares(model.PatchRelationship.Middlewares...)

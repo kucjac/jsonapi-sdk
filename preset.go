@@ -368,9 +368,10 @@ func (h *JSONAPIHandler) getPrecheckFilter(
 	req *http.Request,
 	model *ModelHandler,
 ) (exists bool) {
+	h.log.Debugf("Key value: %+v", key)
 	precheckValue := req.Context().Value(key)
 	if precheckValue == nil {
-		h.log.Warningf("Precheck value for model: %v is not set at endpoint CREATE", model.ModelType.Name())
+		h.log.Warningf("Precheck value for model: %v is not set.", model.ModelType.Name())
 		return
 	}
 

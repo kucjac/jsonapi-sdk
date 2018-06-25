@@ -32,6 +32,10 @@ func (e EndpointType) String() string {
 		op = "CREATE"
 	case Get:
 		op = "GET"
+	case GetRelated:
+		op = "GET RELATED"
+	case GetRelationship:
+		op = "GET RELATIONSHIP"
 	case List:
 		op = "LIST"
 	case Patch:

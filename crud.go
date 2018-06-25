@@ -18,7 +18,7 @@ import (
 // the language is converted.
 //
 // Correctly Response with status '201' Created.
-func (h *JSONAPIHandler) Create(model *ModelHandler) http.HandlerFunc {
+func (h *JSONAPIHandler) Create(model *ModelHandler, endpoint *Endpoint) http.HandlerFunc {
 	return func(rw http.ResponseWriter, req *http.Request) {
 		if _, ok := h.ModelHandlers[model.ModelType]; !ok {
 			h.MarshalInternalError(rw)
@@ -49,7 +49,7 @@ func (h *JSONAPIHandler) Create(model *ModelHandler) http.HandlerFunc {
 		CREATE: PRESET PAIRS
 
 		*/
-		for _, pair := range model.Create.PresetPairs {
+		for _, pair := range endpoint.PresetPairs {
 			presetScope, presetField := pair.GetPair()
 			if pair.Key != nil {
 				if !h.getPresetFilter(pair.Key, presetScope, req, model) {
@@ -88,7 +88,7 @@ func (h *JSONAPIHandler) Create(model *ModelHandler) http.HandlerFunc {
 		CREATE: PRESET FILTERS
 
 		*/
-		for _, filter := range model.Create.PresetFilters {
+		for _, filter := range endpoint.PresetFilters {
 			value := req.Context().Value(filter.Key)
 			if value != nil {
 				if err := h.SetPresetFilterValues(filter.FilterField, value); err != nil {
@@ -178,7 +178,7 @@ func (h *JSONAPIHandler) Create(model *ModelHandler) http.HandlerFunc {
 
 		*/
 
-		for _, pair := range model.Create.PrecheckPairs {
+		for _, pair := range endpoint.PrecheckPairs {
 			presetScope, presetField := pair.GetPair()
 			if pair.Key != nil {
 				if !h.getPrecheckFilter(pair.Key, presetScope, req, model) {
@@ -230,7 +230,7 @@ func (h *JSONAPIHandler) Create(model *ModelHandler) http.HandlerFunc {
 
 		*/
 
-		for _, filter := range model.Create.PrecheckFilters {
+		for _, filter := range endpoint.PrecheckFilters {
 			value := req.Context().Value(filter.Key)
 			if value != nil {
 				if err := h.SetPresetFilterValues(filter.FilterField, value); err != nil {
@@ -319,7 +319,7 @@ func (h *JSONAPIHandler) Create(model *ModelHandler) http.HandlerFunc {
 
 // Get returns a http.HandlerFunc that gets single entity from the "model's"
 // repository.
-func (h *JSONAPIHandler) Get(model *ModelHandler) http.HandlerFunc {
+func (h *JSONAPIHandler) Get(model *ModelHandler, endpoint *Endpoint) http.HandlerFunc {
 	return func(rw http.ResponseWriter, req *http.Request) {
 		if _, ok := h.ModelHandlers[model.ModelType]; !ok {
 			h.MarshalInternalError(rw)
@@ -362,7 +362,7 @@ func (h *JSONAPIHandler) Get(model *ModelHandler) http.HandlerFunc {
 		GET: PRECHECK PAIR
 
 		*/
-		for _, presetPair := range model.Get.PrecheckPairs {
+		for _, presetPair := range endpoint.PrecheckPairs {
 			presetScope, presetField := presetPair.GetPair()
 			if presetPair.Key != nil {
 				if !h.getPrecheckFilter(presetPair.Key, presetScope, req, model) {
@@ -403,7 +403,7 @@ func (h *JSONAPIHandler) Get(model *ModelHandler) http.HandlerFunc {
 
 		*/
 
-		for _, filter := range model.Get.PrecheckFilters {
+		for _, filter := range endpoint.PrecheckFilters {
 			value := req.Context().Value(filter.Key)
 			if value == nil {
 				continue
@@ -497,7 +497,7 @@ func (h *JSONAPIHandler) Get(model *ModelHandler) http.HandlerFunc {
 // The handler gets the root and the specific related field 'id' from the repository
 // and then gets the related object from it's repository.
 // If no error occurred an jsonapi related object is being returned
-func (h *JSONAPIHandler) GetRelated(root *ModelHandler) http.HandlerFunc {
+func (h *JSONAPIHandler) GetRelated(root *ModelHandler, endpoint *Endpoint) http.HandlerFunc {
 	return func(rw http.ResponseWriter, req *http.Request) {
 		if _, ok := h.ModelHandlers[root.ModelType]; !ok {
 			h.MarshalInternalError(rw)
@@ -543,7 +543,7 @@ func (h *JSONAPIHandler) GetRelated(root *ModelHandler) http.HandlerFunc {
 		GET RELATED: PRECHECK PAIR
 
 		*/
-		for _, presetPair := range root.Get.PrecheckPairs {
+		for _, presetPair := range endpoint.PrecheckPairs {
 			presetScope, presetField := presetPair.GetPair()
 			if presetPair.Key != nil {
 				if !h.getPrecheckFilter(presetPair.Key, presetScope, req, root) {
@@ -582,7 +582,7 @@ func (h *JSONAPIHandler) GetRelated(root *ModelHandler) http.HandlerFunc {
 		GET RELATED: PRECHECK FILTERS
 
 		*/
-		if !h.AddPrecheckFilters(scope, req, rw, root.GetRelated.PrecheckFilters...) {
+		if !h.AddPrecheckFilters(scope, req, rw, endpoint.PrecheckFilters...) {
 			return
 		}
 
@@ -707,7 +707,7 @@ func (h *JSONAPIHandler) GetRelated(root *ModelHandler) http.HandlerFunc {
 
 // GetRelationship returns a http.HandlerFunc that returns in the response the relationship field
 // for the root model
-func (h *JSONAPIHandler) GetRelationship(root *ModelHandler) http.HandlerFunc {
+func (h *JSONAPIHandler) GetRelationship(root *ModelHandler, endpoint *Endpoint) http.HandlerFunc {
 	return func(rw http.ResponseWriter, req *http.Request) {
 		if _, ok := h.ModelHandlers[root.ModelType]; !ok {
 			h.MarshalInternalError(rw)
@@ -751,7 +751,7 @@ func (h *JSONAPIHandler) GetRelationship(root *ModelHandler) http.HandlerFunc {
 		  GET RELATIONSHIP: PRECHECK PAIR
 
 		*/
-		if !h.AddPrecheckPairFilters(scope, root, root.GetRelationship, req, rw, root.GetRelationship.PrecheckPairs...) {
+		if !h.AddPrecheckPairFilters(scope, root, endpoint, req, rw, endpoint.PrecheckPairs...) {
 			return
 		}
 
@@ -761,7 +761,7 @@ func (h *JSONAPIHandler) GetRelationship(root *ModelHandler) http.HandlerFunc {
 
 		*/
 
-		if !h.AddPrecheckFilters(scope, req, rw, root.List.PrecheckFilters...) {
+		if !h.AddPrecheckFilters(scope, req, rw, endpoint.PrecheckFilters...) {
 			return
 		}
 
@@ -846,7 +846,7 @@ func (h *JSONAPIHandler) GetRelationship(root *ModelHandler) http.HandlerFunc {
 //	- filter - filter parameter must be followed by the collection name within brackets
 // 		i.e. '[collection]' and the field scoped for the filter within brackets, i.e. '[id]'
 //		i.e. url: http://myapiurl.com/api/blogs?filter[blogs][id]=4
-func (h *JSONAPIHandler) List(model *ModelHandler) http.HandlerFunc {
+func (h *JSONAPIHandler) List(model *ModelHandler, endpoint *Endpoint) http.HandlerFunc {
 	return func(rw http.ResponseWriter, req *http.Request) {
 		if _, ok := h.ModelHandlers[model.ModelType]; !ok {
 			h.MarshalInternalError(rw)
@@ -891,7 +891,7 @@ func (h *JSONAPIHandler) List(model *ModelHandler) http.HandlerFunc {
 		  LIST: PRECHECK PAIRS
 
 		*/
-		if !h.AddPrecheckPairFilters(scope, model, model.List, req, rw, model.List.PrecheckPairs...) {
+		if !h.AddPrecheckPairFilters(scope, model, endpoint, req, rw, endpoint.PrecheckPairs...) {
 			return
 		}
 
@@ -901,7 +901,7 @@ func (h *JSONAPIHandler) List(model *ModelHandler) http.HandlerFunc {
 
 		*/
 
-		if !h.AddPrecheckFilters(scope, req, rw, model.List.PrecheckFilters...) {
+		if !h.AddPrecheckFilters(scope, req, rw, endpoint.PrecheckFilters...) {
 			return
 		}
 		/**
@@ -935,7 +935,7 @@ func (h *JSONAPIHandler) List(model *ModelHandler) http.HandlerFunc {
 
 		  Include count into meta data
 		*/
-		if model.List.CountList {
+		if endpoint.CountList {
 			scope.CountList = true
 		}
 
@@ -944,8 +944,8 @@ func (h *JSONAPIHandler) List(model *ModelHandler) http.HandlerFunc {
 		  LIST: DEFAULT PAGINATION
 
 		*/
-		if model.List.PresetPaginate != nil && scope.Pagination == nil {
-			scope.Pagination = model.List.PresetPaginate
+		if endpoint.PresetPaginate != nil && scope.Pagination == nil {
+			scope.Pagination = endpoint.PresetPaginate
 		}
 
 		/**
@@ -953,8 +953,8 @@ func (h *JSONAPIHandler) List(model *ModelHandler) http.HandlerFunc {
 		  LIST: DEFAULT SORT
 
 		*/
-		if len(model.List.PresetSort) != 0 {
-			scope.Sorts = append(model.List.PresetSort, scope.Sorts...)
+		if len(endpoint.PresetSort) != 0 {
+			scope.Sorts = append(endpoint.PresetSort, scope.Sorts...)
 		}
 
 		/**
@@ -1014,7 +1014,7 @@ func (h *JSONAPIHandler) List(model *ModelHandler) http.HandlerFunc {
 // PRESETTING:
 //	- Preset values using PresetScope
 //	- Precheck values using PrecheckScope
-func (h *JSONAPIHandler) Patch(model *ModelHandler) http.HandlerFunc {
+func (h *JSONAPIHandler) Patch(model *ModelHandler, endpoint *Endpoint) http.HandlerFunc {
 	return func(rw http.ResponseWriter, req *http.Request) {
 		if _, ok := h.ModelHandlers[model.ModelType]; !ok {
 			h.MarshalInternalError(rw)
@@ -1064,7 +1064,7 @@ func (h *JSONAPIHandler) Patch(model *ModelHandler) http.HandlerFunc {
 		  PATCH: PRESET PAIRS
 
 		*/
-		for _, presetPair := range model.Patch.PresetPairs {
+		for _, presetPair := range endpoint.PresetPairs {
 			presetScope, presetField := presetPair.GetPair()
 			if presetPair.Key != nil {
 				if !h.getPresetFilter(presetPair.Key, presetScope, req, model) {
@@ -1103,7 +1103,7 @@ func (h *JSONAPIHandler) Patch(model *ModelHandler) http.HandlerFunc {
 
 		*/
 
-		if !h.SetPresetFilters(scope, model, req, rw, model.Patch.PresetFilters...) {
+		if !h.SetPresetFilters(scope, model, req, rw, endpoint.PresetFilters...) {
 			return
 		}
 
@@ -1112,7 +1112,7 @@ func (h *JSONAPIHandler) Patch(model *ModelHandler) http.HandlerFunc {
 		  PATCH: PRECHECK PAIRS
 
 		*/
-		if !h.AddPrecheckPairFilters(scope, model, model.Patch, req, rw, model.Patch.PrecheckPairs...) {
+		if !h.AddPrecheckPairFilters(scope, model, endpoint, req, rw, endpoint.PrecheckPairs...) {
 			return
 		}
 
@@ -1122,7 +1122,7 @@ func (h *JSONAPIHandler) Patch(model *ModelHandler) http.HandlerFunc {
 
 		*/
 
-		if !h.AddPrecheckFilters(scope, req, rw, model.Patch.PrecheckFilters...) {
+		if !h.AddPrecheckFilters(scope, req, rw, endpoint.PrecheckFilters...) {
 			return
 		}
 
@@ -1147,7 +1147,7 @@ func (h *JSONAPIHandler) Patch(model *ModelHandler) http.HandlerFunc {
 		  PATCH: GET MODIFIED RESULT
 
 		*/
-		if model.Patch.GetModifiedResult {
+		if endpoint.GetModifiedResult {
 			scope.GetModifiedResult = true
 		}
 
@@ -1175,7 +1175,7 @@ func (h *JSONAPIHandler) Patch(model *ModelHandler) http.HandlerFunc {
 		*/
 		// Use Patch Method on given model's Repository for given scope.
 		if dbErr := repo.Patch(scope); dbErr != nil {
-			if dbErr.Compare(unidb.ErrNoResult) && model.Patch.HasPrechecks() {
+			if dbErr.Compare(unidb.ErrNoResult) && endpoint.HasPrechecks() {
 				errObj := jsonapi.ErrInsufficientAccPerm.Copy()
 				errObj.Detail = "Given object is not available for this account or it does not exists."
 				h.MarshalErrors(rw, errObj)
@@ -1216,15 +1216,15 @@ func (h *JSONAPIHandler) Patch(model *ModelHandler) http.HandlerFunc {
 	}
 }
 
-func (h *JSONAPIHandler) PatchRelated(model *ModelHandler) http.HandlerFunc {
+func (h *JSONAPIHandler) PatchRelated(model *ModelHandler, endpoint *Endpoint) http.HandlerFunc {
 	return h.EndpointForbidden(model, PatchRelated)
 }
 
-func (h *JSONAPIHandler) PatchRelationship(model *ModelHandler) http.HandlerFunc {
+func (h *JSONAPIHandler) PatchRelationship(model *ModelHandler, endpoint *Endpoint) http.HandlerFunc {
 	return h.EndpointForbidden(model, PatchRelationship)
 }
 
-func (h *JSONAPIHandler) Delete(model *ModelHandler) http.HandlerFunc {
+func (h *JSONAPIHandler) Delete(model *ModelHandler, endpoint *Endpoint) http.HandlerFunc {
 	return func(rw http.ResponseWriter, req *http.Request) {
 		if _, ok := h.ModelHandlers[model.ModelType]; !ok {
 			h.MarshalInternalError(rw)
@@ -1280,7 +1280,7 @@ func (h *JSONAPIHandler) Delete(model *ModelHandler) http.HandlerFunc {
 
 		*/
 
-		if !h.AddPrecheckPairFilters(scope, model, model.Delete, req, rw, model.Delete.PrecheckPairs...) {
+		if !h.AddPrecheckPairFilters(scope, model, endpoint, req, rw, endpoint.PrecheckPairs...) {
 			return
 		}
 
@@ -1290,7 +1290,7 @@ func (h *JSONAPIHandler) Delete(model *ModelHandler) http.HandlerFunc {
 
 		*/
 
-		if !h.AddPrecheckFilters(scope, req, rw, model.Delete.PrecheckFilters...) {
+		if !h.AddPrecheckFilters(scope, req, rw, endpoint.PrecheckFilters...) {
 			return
 		}
 		/**
@@ -1336,7 +1336,7 @@ func (h *JSONAPIHandler) Delete(model *ModelHandler) http.HandlerFunc {
 		*/
 		repo := h.GetRepositoryByType(model.ModelType)
 		if dbErr := repo.Delete(scope); dbErr != nil {
-			if dbErr.Compare(unidb.ErrNoResult) && model.Delete.HasPrechecks() {
+			if dbErr.Compare(unidb.ErrNoResult) && endpoint.HasPrechecks() {
 				errObj := jsonapi.ErrInsufficientAccPerm.Copy()
 				errObj.Detail = "Given object is not available for this account or it does not exists."
 				h.MarshalErrors(rw, errObj)
