@@ -51,7 +51,7 @@ func (h *JSONAPIHandler) AddPrecheckPairFilters(
 				continue
 			}
 		}
-		values, err := h.GetPresetValues(presetScope, presetField, rw)
+		values, err := h.GetPresetValues(presetScope, rw)
 		if err != nil {
 			if hErr := err.(*HandlerError); hErr != nil {
 				if hErr.Code == ErrNoValues {
@@ -74,13 +74,18 @@ func (h *JSONAPIHandler) AddPrecheckPairFilters(
 			// if handleHandlerError has warning
 			continue
 		}
+
 		if err := h.SetPresetFilterValues(presetField, values...); err != nil {
 			h.log.Errorf("Error while preseting filter for model: '%s'. '%s'", model.ModelType.Name(), err)
 			h.MarshalInternalError(rw)
 			return
 		}
 
-		h.addPresetFilter(scope, presetField)
+		if err := scope.AddFilterField(presetField); err != nil {
+			h.log.Debugf("Cannot add filter field: %v to the model: %v", presetField.GetFieldName(), scope.Struct.GetType().Name())
+			h.MarshalInternalError(rw)
+			return
+		}
 	}
 	return true
 }
@@ -88,7 +93,6 @@ func (h *JSONAPIHandler) AddPrecheckPairFilters(
 // GetPresetValues gets the values from the presetScope
 func (h *JSONAPIHandler) GetPresetValues(
 	presetScope *jsonapi.Scope,
-	filter *jsonapi.FilterField,
 	rw http.ResponseWriter,
 ) (values []interface{}, err error) {
 	h.log.Debug("------Getting Preset Values-------")
@@ -168,7 +172,7 @@ func (h *JSONAPIHandler) GetPresetValues(
 		field.Scope.SetIDFilters(missing...)
 
 		if len(field.Scope.IncludedFields) != 0 {
-			values, err = h.GetPresetValues(field.Scope, filter, rw)
+			values, err = h.GetPresetValues(field.Scope, rw)
 			if err != nil {
 				return
 			}
@@ -176,8 +180,8 @@ func (h *JSONAPIHandler) GetPresetValues(
 		}
 		return missing, nil
 	}
+	return presetScope.GetPrimaryFieldValues()
 
-	return
 }
 
 // PresetScopeValue presets provided values for given scope.

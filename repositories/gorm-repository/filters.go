@@ -16,14 +16,17 @@ var (
 )
 
 var (
-	IErrNoFieldFound = errors.New("No field found for the relationship")
+	IErrNoFieldFound     = errors.New("No field found for the relationship")
+	IErrNoValuesProvided = errors.New("No values provided in the filter.")
 )
 
 // addWhere adds the where to the scope of the db
 func addWhere(db *gorm.DB, columnName string, filter *jsonapi.FilterField) error {
 	var err error
 	for _, fv := range filter.Values {
-
+		if len(fv.Values) == 0 {
+			return IErrNoValuesProvided
+		}
 		op := sqlizeOperator(fv.Operator)
 		var valueMark string
 		if fv.Operator == jsonapi.OpIn || fv.Operator == jsonapi.OpNotIn {
@@ -73,9 +76,6 @@ func addWhere(db *gorm.DB, columnName string, filter *jsonapi.FilterField) error
 			}
 		}
 		q := fmt.Sprintf("%s %s %s", columnName, op, valueMark)
-
-		// DEBUG
-		// fmt.Println(q)
 
 		*db = *db.Where(q, fv.Values...)
 	}
@@ -127,10 +127,10 @@ func buildFilters(db *gorm.DB, mStruct *gorm.ModelStruct, scope *jsonapi.Scope,
 	for _, attrFilter := range scope.AttributeFilters {
 		// fmt.Printf("Attribute field: '%s'\n", attrFilter.GetFieldName())
 		gormField, err = getGormField(attrFilter, mStruct, false)
-
 		if err != nil {
 			return err
 		}
+
 		if !gormField.IsIgnored {
 			if err = addWhere(db, gormField.DBName, attrFilter); err != nil {
 				return err
@@ -160,7 +160,7 @@ func buildFilters(db *gorm.DB, mStruct *gorm.ModelStruct, scope *jsonapi.Scope,
 			err = IErrBadRelationshipField
 			return err
 		}
-		fmt.Printf("Gormfield: %v", gormField.Relationship)
+
 		switch gormField.Relationship.Kind {
 		case associationBelongsTo, associationHasOne:
 
@@ -210,9 +210,6 @@ func buildFilters(db *gorm.DB, mStruct *gorm.ModelStruct, scope *jsonapi.Scope,
 			columnName := mStruct.PrimaryFields[0].DBName
 			q := fmt.Sprintf("%s %s %s", columnName, op, valueMark)
 
-			fmt.Println(q)
-			fmt.Println(expr)
-
 			*db = *db.Where(q, expr)
 
 		case associationManyToMany:
@@ -222,16 +219,7 @@ func buildFilters(db *gorm.DB, mStruct *gorm.ModelStruct, scope *jsonapi.Scope,
 
 			joinTableHandler := gormField.Relationship.JoinTableHandler
 
-			joinTable := joinTableHandler.Table(relDB)
-
-			thisFK := gormField.Relationship.ForeignDBNames[0]
 			// relatedModelFK := gormField.Relationship.AssociationForeignDBNames[0]
-
-			fmt.Printf("this fk: %s\n", thisFK)
-			fmt.Printf("assoc fk: %s\n", gormField.Relationship.AssociationForeignDBNames[0])
-			fmt.Printf("jointable fk: %v\n", joinTableHandler.SourceForeignKeys()[0])
-			fmt.Printf("jointable assocFK: %v\n", joinTableHandler.DestinationForeignKeys()[0])
-			fmt.Printf("jointable: %s\n", joinTable)
 
 			relDB = relDB.Table(gormField.Relationship.JoinTableHandler.Table(relDB)).
 				Select(joinTableHandler.SourceForeignKeys()[0].DBName)

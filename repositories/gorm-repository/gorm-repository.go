@@ -110,40 +110,19 @@ func (g *GORMRepository) getRelationship(
 
 		errNilPrimary = errors.New("nil value")
 
-		getDBRelationship = func(singleValue, relationValue reflect.Value) error {
-			// fmt.Println("DBRelationship")
-			db := g.db.New()
-			assoc := db.Model(singleValue.Interface()).
-				Select(fieldScope.PrimaryField().DBName).
-				Association(field.GetFieldName())
-
-			if err := assoc.Error; err != nil {
-				return err
-			}
-
-			relation := relationValue.Interface()
-			err := assoc.Find(relation).Error
-			if err != nil {
-				return err
-			}
-
-			relationValue = reflect.ValueOf(relation)
-			return nil
-		}
-
 		getBelongsToRelationship = func(singleValue, relationValue reflect.Value) error {
-			fmt.Printf("BelongsToRelationship for field: %v", fkField.Struct.Name)
+			// fmt.Printf("BelongsToRelationship for field: %v", fkField.Struct.Name)
 			relationPrimary := relationValue.Elem().FieldByIndex(fieldScope.PrimaryField().Struct.Index)
 			fkValue := singleValue.Elem().FieldByIndex(fkField.Struct.Index)
 
 			if fkValue.Kind() == reflect.String {
 				strFK := fkValue.Interface().(string)
 				if strFK == "" {
-					fmt.Printf("Trying to get primary key for the belongs to relationship. It's empty. Field: %v\n", fkField.Struct.Name)
+					// fmt.Printf("Trying to get primary key for the belongs to relationship. It's empty. Field: %v\n", fkField.Struct.Name)
 					return errNilPrimary
 				}
 			} else if !fkValue.IsValid() {
-				fmt.Printf("Field is not valid. %s", fkField.Struct.Name)
+				// fmt.Printf("Field is not valid. %s", fkField.Struct.Name)
 				return errNilPrimary
 			}
 
@@ -153,17 +132,33 @@ func (g *GORMRepository) getRelationship(
 
 		// funcs
 		getRelationshipSingle = func(singleValue reflect.Value) error {
-			// fmt.Println("RelationshipSingle")
-			var isSlice bool
+
 			relationValue := singleValue.Elem().Field(field.GetFieldIndex())
 
 			t := field.GetFieldType()
 			switch t.Kind() {
 			case reflect.Slice:
-				relationValue = reflect.New(t)
-				isSlice = true
+				sliceVal := reflect.New(reflect.SliceOf(t.Elem()))
+
+				db := g.db.New()
+				assoc := db.Model(singleValue.Interface()).
+					Select(fieldScope.PrimaryField().DBName).
+					Association(field.GetFieldName())
+
+				if err := assoc.Error; err != nil {
+					return err
+				}
+
+				relation := sliceVal.Interface()
+				if err := assoc.Find(relation).Error; err != nil {
+					return err
+				}
+
+				relationValue.Set(reflect.ValueOf(relation).Elem())
+
 			case reflect.Ptr:
-				relationValue = reflect.New(t.Elem())
+
+				relationValue.Set(reflect.New(t.Elem()))
 				if fkField != nil {
 					err = getBelongsToRelationship(singleValue, relationValue)
 					if err != nil {
@@ -171,25 +166,35 @@ func (g *GORMRepository) getRelationship(
 					}
 					singleValue.Elem().Field(field.GetFieldIndex()).Set(relationValue)
 					return nil
+				} else {
+					db := g.db.New()
+					assoc := db.Model(singleValue.Interface()).
+						Select(fieldScope.PrimaryField().DBName).
+						Association(field.GetFieldName())
+
+					if err := assoc.Error; err != nil {
+						return err
+					}
+
+					relation := relationValue.Interface()
+					err = assoc.Find(relation).Error
+
+					if err != nil {
+						if err == gorm.ErrRecordNotFound {
+							relationValue.Set(reflect.Zero(t))
+							return nil
+						} else {
+							return err
+						}
+					}
+					relationValue.Set(reflect.ValueOf(relation))
+
 				}
-			}
-
-			if err := getDBRelationship(singleValue, relationValue); err != nil {
-				// fmt.Printf("GetDBRel Err: %v\n", err)
-				return err
-			}
-			if isSlice {
-
-				singleValue.Elem().Field(field.GetFieldIndex()).Set(relationValue.Elem())
-			} else {
-
-				singleValue.Elem().Field(field.GetFieldIndex()).Set(relationValue)
 			}
 
 			return nil
 		}
 	)
-	// fmt.Printf("Get relationship: '%s' -> '%s'\n", scope.Struct.GetCollectionType(), field.GetFieldName())
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -241,17 +246,12 @@ func (g *GORMRepository) getRelationship(
 
 	v := reflect.ValueOf(scope.Value)
 	if v.Kind() == reflect.Slice {
-		// there would be more than one value
 
-		// if v.Kind() != reflect.Slice {
-		// 	err = fmt.Errorf("Invalid value type provided. '%v'", v.Type())
-		// 	return err
-		// }
-		// fmt.Println("Get multiple relationships Single")
 		length := v.Len()
 		for i := 0; i < length; i++ {
 
 			singleValue := v.Index(i)
+			// fmt.Printf("SingleValue: %v\n", singleValue.Type())
 			err = getRelationshipSingle(singleValue)
 			if err != nil {
 				if err == errNilPrimary {

@@ -57,7 +57,7 @@ func (h *JSONAPIHandler) Create(model *ModelHandler, endpoint *Endpoint) http.Ha
 				}
 			}
 
-			values, err := h.GetPresetValues(presetScope, presetField, rw)
+			values, err := h.GetPresetValues(presetScope, rw)
 			if err != nil {
 				if hErr := err.(*HandlerError); hErr != nil {
 					if hErr.Code == ErrNoValues {
@@ -186,7 +186,7 @@ func (h *JSONAPIHandler) Create(model *ModelHandler, endpoint *Endpoint) http.Ha
 				}
 			}
 
-			values, err := h.GetPresetValues(presetScope, presetField, rw)
+			values, err := h.GetPresetValues(presetScope, rw)
 			if err != nil {
 				if hErr := err.(*HandlerError); hErr != nil {
 					if hErr.Code == ErrNoValues {
@@ -362,39 +362,8 @@ func (h *JSONAPIHandler) Get(model *ModelHandler, endpoint *Endpoint) http.Handl
 		GET: PRECHECK PAIR
 
 		*/
-		for _, presetPair := range endpoint.PrecheckPairs {
-			presetScope, presetField := presetPair.GetPair()
-			if presetPair.Key != nil {
-				if !h.getPrecheckFilter(presetPair.Key, presetScope, req, model) {
-					continue
-				}
-			}
-
-			values, err := h.GetPresetValues(presetScope, presetField, rw)
-			if err != nil {
-				if hErr := err.(*HandlerError); hErr != nil {
-					if hErr.Code == ErrNoValues {
-						errObj := jsonapi.ErrInsufficientAccPerm.Copy()
-						h.MarshalErrors(rw, errObj)
-						return
-					}
-					if !h.handleHandlerError(hErr, rw) {
-						return
-					}
-				} else {
-					h.log.Error(err)
-					h.MarshalInternalError(rw)
-					return
-				}
-				continue
-			}
-			if err := h.SetPresetFilterValues(presetField, values...); err != nil {
-				h.log.Errorf("Error while preseting filter for model: '%s'. '%s'", model.ModelType.Name(), err)
-				h.MarshalInternalError(rw)
-				return
-			}
-
-			h.addPresetFilter(scope, presetField)
+		if !h.AddPrecheckPairFilters(scope, model, endpoint, req, rw, endpoint.PrecheckPairs...) {
+			return
 		}
 
 		/**
@@ -403,23 +372,8 @@ func (h *JSONAPIHandler) Get(model *ModelHandler, endpoint *Endpoint) http.Handl
 
 		*/
 
-		for _, filter := range endpoint.PrecheckFilters {
-			value := req.Context().Value(filter.Key)
-			if value == nil {
-				continue
-			}
-
-			if err := h.SetPresetFilterValues(filter.FilterField, value); err != nil {
-				h.log.Errorf("Cannot preset filter value for model: %v, filterField: %v. Error: %v", model.ModelType.Name(), filter.GetFieldName(), err)
-				h.MarshalInternalError(rw)
-				return
-			}
-
-			if err := scope.AddFilterField(filter.FilterField); err != nil {
-				h.log.Errorf("Cannot add filter field: %v. Method: GET", err)
-				h.MarshalInternalError(rw)
-				return
-			}
+		if !h.AddPrecheckFilters(scope, req, rw, endpoint.PrecheckFilters...) {
+			return
 		}
 
 		/**
@@ -543,38 +497,8 @@ func (h *JSONAPIHandler) GetRelated(root *ModelHandler, endpoint *Endpoint) http
 		GET RELATED: PRECHECK PAIR
 
 		*/
-		for _, presetPair := range endpoint.PrecheckPairs {
-			presetScope, presetField := presetPair.GetPair()
-			if presetPair.Key != nil {
-				if !h.getPrecheckFilter(presetPair.Key, presetScope, req, root) {
-					continue
-				}
-			}
-			values, err := h.GetPresetValues(presetScope, presetField, rw)
-			if err != nil {
-				if hErr := err.(*HandlerError); hErr != nil {
-					if hErr.Code == ErrNoValues {
-						errObj := jsonapi.ErrInsufficientAccPerm.Copy()
-						h.MarshalErrors(rw, errObj)
-						return
-					}
-					if !h.handleHandlerError(hErr, rw) {
-						return
-					}
-				} else {
-					h.log.Error(err)
-					h.MarshalInternalError(rw)
-					return
-				}
-				continue
-			}
-			if err := h.SetPresetFilterValues(presetField, values...); err != nil {
-				h.log.Errorf("Error while preseting filter for model: '%s'. '%s'", root.ModelType.Name(), err)
-				h.MarshalInternalError(rw)
-				return
-			}
-
-			h.addPresetFilter(scope, presetField)
+		if !h.AddPrecheckPairFilters(scope, root, endpoint, req, rw, endpoint.PrecheckPairs...) {
+			return
 		}
 
 		/**
@@ -1071,7 +995,7 @@ func (h *JSONAPIHandler) Patch(model *ModelHandler, endpoint *Endpoint) http.Han
 					continue
 				}
 			}
-			values, err := h.GetPresetValues(presetScope, presetField, rw)
+			values, err := h.GetPresetValues(presetScope, rw)
 			if err != nil {
 				if hErr := err.(*HandlerError); hErr != nil {
 					if hErr.Code == ErrNoValues {

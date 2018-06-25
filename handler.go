@@ -383,14 +383,6 @@ func (h *JSONAPIHandler) HandleValidateError(
 	return
 }
 
-func (h *JSONAPIHandler) addPresetFilter(scope *jsonapi.Scope, filter *jsonapi.FilterField) {
-	if len(filter.Relationships) > 0 {
-		scope.RelationshipFilters = append(scope.RelationshipFilters, filter)
-	} else {
-		scope.PrimaryFilters = append(scope.PrimaryFilters, filter)
-	}
-}
-
 func (h *JSONAPIHandler) checkValues(filterValue *jsonapi.FilterValues, fieldValue reflect.Value) (ok bool) {
 	defer func() {
 		if r := recover(); r != nil {

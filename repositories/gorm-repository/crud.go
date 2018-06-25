@@ -1,7 +1,6 @@
 package gormrepo
 
 import (
-	"fmt"
 	"github.com/kucjac/jsonapi"
 	"github.com/kucjac/jsonapi-sdk/repositories"
 	"github.com/kucjac/uni-db"
@@ -113,6 +112,7 @@ func (g *GORMRepository) List(scope *jsonapi.Scope) *unidb.Error {
 	  LIST: BUILD SCOPE LIST
 
 	*/
+
 	gormScope, err := g.buildScopeList(scope)
 	if err != nil {
 		errObj := unidb.ErrInternalError.New()
@@ -127,6 +127,7 @@ func (g *GORMRepository) List(scope *jsonapi.Scope) *unidb.Error {
 	  LIST: GET FROM DB
 
 	*/
+
 	err = db.Find(scope.GetValueAddress()).Error
 	if err != nil {
 		return g.converter.Convert(err)
@@ -153,7 +154,6 @@ func (g *GORMRepository) List(scope *jsonapi.Scope) *unidb.Error {
 	*/
 
 	if repositories.ImplementsHookAfterRead(scope) {
-		fmt.Println("Implements")
 		v := reflect.ValueOf(scope.Value)
 		for i := 0; i < v.Len(); i++ {
 			single := v.Index(i).Interface()

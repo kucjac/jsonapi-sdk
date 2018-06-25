@@ -39,18 +39,33 @@ func (h *JSONAPIHandler) GetRelationshipFilters(scope *jsonapi.Scope, req *http.
 		}
 		if relModel.List != nil {
 			for _, precheck := range relModel.List.PrecheckPairs {
-				values, err := h.GetPresetValues(precheck.Scope, precheck.Filter, rw)
+				precheckScope, precheckField := precheck.GetPair()
+				if precheck.Key != nil {
+					if !h.getPrecheckFilter(precheck.Key, precheckScope, req, relModel) {
+						continue
+					}
+				}
+				values, err := h.GetPresetValues(precheckScope, rw)
 				if err != nil {
-					return err
+					if hErr := err.(*HandlerError); hErr != nil {
+						return hErr
+
+					} else {
+						return err
+					}
 				}
 
-				if err := h.SetPresetFilterValues(precheck.Filter, values...); err != nil {
+				if err := h.SetPresetFilterValues(precheckField, values...); err != nil {
 					hErr := newHandlerError(ErrValuePreset, err.Error())
-					hErr.Field = precheck.Filter.StructField
+					hErr.Field = precheckField.StructField
 					return hErr
 				}
 
-				h.addPresetFilter(relationshipScope, precheck.Filter)
+				if err := relationshipScope.AddFilterField(precheckField); err != nil {
+					hErr := newHandlerError(ErrValuePreset, err.Error())
+					hErr.Field = precheckField.StructField
+					return hErr
+				}
 			}
 		}
 
