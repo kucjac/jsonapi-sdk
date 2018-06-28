@@ -178,51 +178,51 @@ func (h *JSONAPIHandler) Create(model *ModelHandler, endpoint *Endpoint) http.Ha
 
 		*/
 
-		for _, pair := range endpoint.PrecheckPairs {
-			presetScope, presetField := pair.GetPair()
-			if pair.Key != nil {
-				if !h.getPrecheckFilter(pair.Key, presetScope, req, model) {
-					continue
-				}
-			}
+		// for _, pair := range endpoint.PrecheckPairs {
+		// 	presetScope, presetField := pair.GetPair()
+		// 	if pair.Key != nil {
+		// 		if !h.getPrecheckFilter(pair.Key, presetScope, req, model) {
+		// 			continue
+		// 		}
+		// 	}
 
-			values, err := h.GetPresetValues(presetScope, rw)
-			if err != nil {
-				if hErr := err.(*HandlerError); hErr != nil {
-					if hErr.Code == ErrNoValues {
-						errObj := jsonapi.ErrInsufficientAccPerm.Copy()
-						h.MarshalErrors(rw, errObj)
-						return
-					}
-					if !h.handleHandlerError(hErr, rw) {
-						return
-					}
-				} else {
-					h.log.Error(err)
-					h.MarshalInternalError(rw)
-					return
-				}
-				continue
-			}
+		// 	values, err := h.GetPresetValues(presetScope, rw)
+		// 	if err != nil {
+		// 		if hErr := err.(*HandlerError); hErr != nil {
+		// 			if hErr.Code == ErrNoValues {
+		// 				errObj := jsonapi.ErrInsufficientAccPerm.Copy()
+		// 				h.MarshalErrors(rw, errObj)
+		// 				return
+		// 			}
+		// 			if !h.handleHandlerError(hErr, rw) {
+		// 				return
+		// 			}
+		// 		} else {
+		// 			h.log.Error(err)
+		// 			h.MarshalInternalError(rw)
+		// 			return
+		// 		}
+		// 		continue
+		// 	}
 
-			if err := h.SetPresetFilterValues(presetField, values...); err != nil {
-				h.log.Error("Cannot preset values to the filter value. %s", err)
-				h.MarshalInternalError(rw)
-				return
-			}
+		// 	if err := h.SetPresetFilterValues(presetField, values...); err != nil {
+		// 		h.log.Error("Cannot preset values to the filter value. %s", err)
+		// 		h.MarshalInternalError(rw)
+		// 		return
+		// 	}
 
-			if err := h.CheckPrecheckValues(scope, presetField); err != nil {
-				h.log.Debugf("Precheck value error: '%s'", err)
-				if err == IErrValueNotValid {
-					errObj := jsonapi.ErrInvalidJSONFieldValue.Copy()
-					errObj.Detail = "One of the field values are not valid."
-					h.MarshalErrors(rw, errObj)
-				} else {
-					h.MarshalInternalError(rw)
-				}
-				return
-			}
-		}
+		// 	if err := h.CheckPrecheckValues(scope, presetField); err != nil {
+		// 		h.log.Debugf("Precheck value error: '%s'", err)
+		// 		if err == IErrValueNotValid {
+		// 			errObj := jsonapi.ErrInvalidJSONFieldValue.Copy()
+		// 			errObj.Detail = "One of the field values are not valid."
+		// 			h.MarshalErrors(rw, errObj)
+		// 		} else {
+		// 			h.MarshalInternalError(rw)
+		// 		}
+		// 		return
+		// 	}
+		// }
 
 		/**
 
@@ -230,20 +230,20 @@ func (h *JSONAPIHandler) Create(model *ModelHandler, endpoint *Endpoint) http.Ha
 
 		*/
 
-		for _, filter := range endpoint.PrecheckFilters {
-			value := req.Context().Value(filter.Key)
-			if value != nil {
-				if err := h.SetPresetFilterValues(filter.FilterField, value); err != nil {
-					h.log.Errorf("Cannot preset value for the Create.PresetFilter. Model %v. Field %v. Value: %v", model.ModelType.Name(), filter.StructField.GetFieldName(), value)
-				}
+		// for _, filter := range endpoint.PrecheckFilters {
+		// 	value := req.Context().Value(filter.Key)
+		// 	if value != nil {
+		// 		if err := h.SetPresetFilterValues(filter.FilterField, value); err != nil {
+		// 			h.log.Errorf("Cannot preset value for the Create.PresetFilter. Model %v. Field %v. Value: %v", model.ModelType.Name(), filter.StructField.GetFieldName(), value)
+		// 		}
 
-				if err := scope.AddFilterField(filter.FilterField); err != nil {
-					h.log.Error(err)
-					h.MarshalInternalError(rw)
-					return
-				}
-			}
-		}
+		// 		if err := scope.AddFilterField(filter.FilterField); err != nil {
+		// 			h.log.Error(err)
+		// 			h.MarshalInternalError(rw)
+		// 			return
+		// 		}
+		// 	}
+		// }
 
 		/**
 
@@ -861,7 +861,7 @@ func (h *JSONAPIHandler) List(model *ModelHandler, endpoint *Endpoint) http.Hand
 		  Include count into meta data
 		*/
 		if endpoint.CountList {
-			scope.CountList = true
+			scope.PageTotal = true
 		}
 
 		/**

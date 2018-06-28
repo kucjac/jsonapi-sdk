@@ -50,6 +50,10 @@ func (g *GORMRepository) initialize(db *gorm.DB) (err error) {
 	return nil
 }
 
+func (g *GORMRepository) buildScopeCreate(jsonScope *jsonapi.Scope) (*gorm.Scope, error) {
+
+}
+
 func (g *GORMRepository) buildScopeGet(jsonScope *jsonapi.Scope) (*gorm.Scope, error) {
 	gormScope := g.db.NewScope(jsonScope.Value)
 	mStruct := gormScope.GetModelStruct()

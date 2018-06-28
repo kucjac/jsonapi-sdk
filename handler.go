@@ -113,14 +113,24 @@ func (h *JSONAPIHandler) CheckPrecheckValues(
 					err = IErrPresetNoValues
 					return false
 				}
-
+				if field.Kind() == reflect.Ptr {
+					field = field.Elem()
+				}
 				relatedField := field.Field(relatedIndex)
-				return h.checkValues(filter.Values[0], relatedField)
+				ok := h.checkValues(filter.Relationships[0].Values[0], relatedField)
+				if !ok {
+					h.log.Debug("Values does not match: %v", filter.Relationships[0].Values[0], relatedField.Interface())
+				}
+				return ok
 			case jsonapi.RelationshipMultiple:
 				for i := 0; i < field.Len(); i++ {
 					fieldElem := field.Index(i)
+					if fieldElem.Kind() == reflect.Ptr {
+						fieldElem = fieldElem.Elem()
+					}
 					relatedField := fieldElem.Field(relatedIndex)
-					if ok := h.checkValues(filter.Values[0], relatedField); !ok {
+					if ok := h.checkValues(filter.Relationships[0].Values[0], relatedField); !ok {
+						h.log.Debug("Values does not match: %v", filter.Relationships[0].Values[0], relatedField.Interface())
 						return false
 					}
 				}
@@ -392,9 +402,9 @@ func (h *JSONAPIHandler) checkValues(filterValue *jsonapi.FilterValues, fieldVal
 	}()
 	switch filterValue.Operator {
 	case jsonapi.OpIn:
-		return checkIn(fieldValue, filterValue.Values...)
+		return h.checkIn(fieldValue, filterValue.Values...)
 	case jsonapi.OpNotIn:
-		return checkNotIn(fieldValue, filterValue.Values...)
+		return h.checkNotIn(fieldValue, filterValue.Values...)
 	case jsonapi.OpEqual:
 		return checkEqual(fieldValue, filterValue.Values...)
 	case jsonapi.OpNotEqual:
@@ -410,7 +420,7 @@ func (h *JSONAPIHandler) checkValues(filterValue *jsonapi.FilterValues, fieldVal
 
 }
 
-func checkIn(fieldValue reflect.Value, values ...interface{}) (ok bool) {
+func (h *JSONAPIHandler) checkIn(fieldValue reflect.Value, values ...interface{}) (ok bool) {
 	var isTime bool
 	if fieldValue.Type() == reflect.TypeOf(time.Time{}) {
 		isTime = true
@@ -422,15 +432,20 @@ func checkIn(fieldValue reflect.Value, values ...interface{}) (ok bool) {
 		if isTime {
 			v = v.MethodByName("UnixNano")
 		}
-		if ok = reflect.DeepEqual(v, fieldValue); ok {
+
+		h.log.Debugf("Comapring Values: %v, %v", value, fieldValue)
+		ok = reflect.DeepEqual(v, fieldValue)
+		if ok {
+			h.log.Debug("Equal")
 			return
 		}
+		h.log.Debug("Not equal")
 	}
 	return
 }
 
-func checkNotIn(fieldValue reflect.Value, values ...interface{}) (ok bool) {
-	return !checkIn(fieldValue, values...)
+func (h *JSONAPIHandler) checkNotIn(fieldValue reflect.Value, values ...interface{}) (ok bool) {
+	return !h.checkIn(fieldValue, values...)
 }
 
 func checkEqual(fieldValue reflect.Value, values ...interface{}) (ok bool) {

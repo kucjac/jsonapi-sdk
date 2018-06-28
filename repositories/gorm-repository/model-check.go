@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/jinzhu/gorm"
 	"reflect"
+	"time"
 )
 
 func CheckGormModels(db *gorm.DB, models ...interface{}) error {
@@ -40,6 +41,10 @@ func checkSingleModel(model interface{}, db *gorm.DB) error {
 				continue
 			}
 		default:
+			continue
+		}
+
+		if t == reflect.TypeOf(time.Time{}) {
 			continue
 		}
 
