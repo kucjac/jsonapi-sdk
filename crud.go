@@ -332,12 +332,13 @@ func (h *JSONAPIHandler) Get(model *ModelHandler, endpoint *Endpoint) http.Handl
 		GET: BUILD SCOPE
 
 		*/
-		scope, errs, err := h.Controller.BuildScopeSingle(req, reflect.New(model.ModelType).Interface())
+		scope, errs, err := h.Controller.BuildScopeSingle(req, reflect.New(model.ModelType).Interface(), nil)
 		if err != nil {
 			h.log.Error(err)
 			h.MarshalInternalError(rw)
 			return
 		}
+
 		if errs != nil {
 			h.MarshalErrors(rw, errs...)
 			return

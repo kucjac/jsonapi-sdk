@@ -375,7 +375,7 @@ func (h *JSONAPIHandler) getPrecheckFilter(
 	h.log.Debugf("Key value: %+v", key)
 	precheckValue := req.Context().Value(key)
 	if precheckValue == nil {
-		h.log.Warningf("Precheck value for model: %v is not set.", model.ModelType.Name())
+		h.log.Warningf("Empty preset value in precheckpair for model: %s", model.ModelType.Name())
 		return
 	}
 
