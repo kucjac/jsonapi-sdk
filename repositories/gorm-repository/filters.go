@@ -218,7 +218,6 @@ func buildFilters(db *gorm.DB, mStruct *gorm.ModelStruct, scope *jsonapi.Scope,
 			relDB := relScope.DB()
 
 			joinTableHandler := gormField.Relationship.JoinTableHandler
-
 			// relatedModelFK := gormField.Relationship.AssociationForeignDBNames[0]
 
 			relDB = relDB.Table(gormField.Relationship.JoinTableHandler.Table(relDB)).
