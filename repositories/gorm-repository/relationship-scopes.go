@@ -45,7 +45,7 @@ type relationshipFieldValue struct {
 	associatedField *gorm.StructField
 }
 
-func (g *GORMRepository) prepareRelationshipScopes(
+func (g *GORMRepository) prepareRelationshipFields(
 	scope *jsonapi.Scope,
 ) (updateRelationships []*relationshipFieldValue, err error) {
 	if scope.Value == nil {

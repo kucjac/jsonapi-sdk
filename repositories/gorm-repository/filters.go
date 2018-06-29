@@ -82,6 +82,64 @@ func addWhere(db *gorm.DB, columnName string, filter *jsonapi.FilterField) error
 	return nil
 }
 
+func addWhereValues(db *gorm.DB, columnName string, operator jsonapi.FilterOperator, values ...interface{}) (err error) {
+	if len(values) == 0 {
+		return IErrNoValuesProvided
+	}
+	op := sqlizeOperator(operator)
+	var valueMark string
+	if operator == jsonapi.OpIn || operator == jsonapi.OpNotIn {
+		valueMark = "("
+		for i := range values {
+			valueMark += "?"
+			if i != len(values)-1 {
+				valueMark += ","
+			}
+		}
+		valueMark += ")"
+	} else {
+		if len(values) > 1 {
+			err = fmt.Errorf("Too many values for given operator: '%v', '%s'", values, operator)
+			return err
+		}
+		valueMark = "?"
+		if operator == jsonapi.OpStartsWith {
+			for i, v := range values {
+				strVal, ok := v.(string)
+				if !ok {
+					err = fmt.Errorf("Invalid value provided for the OpStartsWith filter: %v", reflect.TypeOf(v))
+					return err
+				}
+				values[i] = strVal + "%"
+			}
+
+			// fmt.Println(fv.Values)
+		} else if operator == jsonapi.OpContains {
+			for i, v := range values {
+				strVal, ok := v.(string)
+				if !ok {
+					err = fmt.Errorf("Invalid value provided for the OpStartsWith filter: %v", reflect.TypeOf(v))
+					return err
+				}
+				values[i] = "%" + strVal + "%"
+			}
+		} else if operator == jsonapi.OpEndsWith {
+			for i, v := range values {
+				strVal, ok := v.(string)
+				if !ok {
+					err = fmt.Errorf("Invalid value provided for the OpStartsWith filter: %v", reflect.TypeOf(v))
+					return err
+				}
+				values[i] = "%" + strVal
+			}
+		}
+	}
+	q := fmt.Sprintf("%s %s %s", columnName, op, valueMark)
+
+	*db = *db.Where(q, values...)
+	return nil
+}
+
 func buildFilters(db *gorm.DB, mStruct *gorm.ModelStruct, scope *jsonapi.Scope,
 ) error {
 

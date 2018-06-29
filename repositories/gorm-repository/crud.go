@@ -1,6 +1,8 @@
 package gormrepo
 
 import (
+	"fmt"
+	"github.com/jinzhu/gorm"
 	"github.com/kucjac/jsonapi"
 	"github.com/kucjac/jsonapi-sdk/repositories"
 	"github.com/kucjac/uni-db"
@@ -8,6 +10,11 @@ import (
 )
 
 func (g *GORMRepository) Create(scope *jsonapi.Scope) *unidb.Error {
+
+	relationships, err := g.prepareRelationshipFields(scope)
+	if err != nil {
+		return g.converter.Convert(err)
+	}
 
 	/**
 
@@ -19,13 +26,12 @@ func (g *GORMRepository) Create(scope *jsonapi.Scope) *unidb.Error {
 			return g.converter.Convert(err)
 		}
 	}
-
 	/**
 
 	  CREATE: DB CREATE
 
 	*/
-	err := g.db.Create(scope.GetValueAddress()).Error
+	err = g.db.Create(scope.GetValueAddress()).Error
 	if err != nil {
 		return g.converter.Convert(err)
 	}
@@ -40,6 +46,66 @@ func (g *GORMRepository) Create(scope *jsonapi.Scope) *unidb.Error {
 		if err := afterCreate.RepoAfterCreate(g.db.New(), scope); err != nil {
 			return g.converter.Convert(err)
 		}
+	}
+
+	gormScope := g.db.NewScope(scope.Value)
+	primary := gormScope.PrimaryField()
+
+	for _, r := range relationships {
+		switch r.relationship {
+		case hasOne, hasMany:
+			var associated *gorm.Field
+			if r.associatedField == primary.StructField {
+				associated = primary
+			} else {
+				for _, asstField := range gormScope.Fields() {
+					if asstField.StructField == r.associatedField {
+						associated = asstField
+					}
+				}
+				if associated == nil {
+					err := IErrNoAssociatedForeignKeyField
+					return g.converter.Convert(err)
+				}
+			}
+
+			relDB := g.db.New().Table(r.table)
+
+			var operator jsonapi.FilterOperator
+			if len(r.relPrimaries) == 1 {
+				operator = jsonapi.OpEqual
+			} else {
+				operator = jsonapi.OpIn
+			}
+			if err := addWhereValues(relDB, r.relPrimaryField.DBName, operator, r.relPrimaries...); err != nil {
+				return g.converter.Convert(err)
+			}
+			relDB = relDB.Update(r.foreignKeyDBName, associated.Field.Interface())
+			if relDB.Error != nil {
+				return g.converter.Convert(relDB.Error)
+			}
+		case many2many:
+			table := r.jointableHandler.Table(g.db)
+
+			for _, prim := range r.relPrimaries {
+				err := g.db.Exec(
+					fmt.Sprintf("INSERT INTO %v(%v,%v) VALUES(?,?)",
+						table,
+						r.jointableHandler.DestinationForeignKeys()[0].DBName,
+						r.jointableHandler.DestinationForeignKeys()[1].DBName,
+					),
+					primary.Field.Interface(),
+					prim,
+				).Error
+				if err != nil {
+					return g.converter.Convert(err)
+				}
+			}
+		default:
+			err := IErrInvalidRelatinoshipType
+			return g.converter.Convert(err)
+		}
+
 	}
 
 	return nil
