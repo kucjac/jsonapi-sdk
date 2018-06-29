@@ -202,9 +202,15 @@ func (g *GORMRepository) prepareRelationshipFields(
 
 					rfv.relPrimaries = append(rfv.relPrimaries, relScope.PrimaryKeyValue())
 				}
-				updateRelationships = append(updateRelationships, rfv)
-				// Set zero value
+
 				field.Field.Set(reflect.Zero(field.Field.Type()))
+				if len(rfv.relPrimaries) == 0 {
+					return IErrNoValuesProvided
+				}
+				updateRelationships = append(updateRelationships, rfv)
+
+				// Set zero value
+
 			case associationManyToMany:
 				if field.Field.Len() == 0 {
 					continue
